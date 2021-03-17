@@ -267,7 +267,7 @@ to climateChange
 end
 
 to operationalArena
-  farmersOptimisation
+;  farmersOptimisation
   giBoardAction
 end
 
@@ -276,10 +276,29 @@ to collectiveChoiceArena
 end
 
 
-to farmersOptimisation
-  ask farms [
-  ]
-end
+;to farmersOptimisation
+;  ask farms [
+;    set myQuality mean [wineQ] of myPlots
+;
+;    ; YOU NEED A LOOP HERE!!!!
+;    ifelse myQuality < qualityStandard
+;
+;   [let intPlots [neighbors] of myPlots with [wineQ > min [wineQ] of myPlots]
+;
+;      ifelse capital >= totalcost +  ([landPrice] of min-n-of 1 intPlots [landPrice])
+;
+;       [let chosenPlot min-n-of 1 intPlots [landPrice]
+;      ask chosenPlot [set owner [who] of myself]
+;       set capital capital - [landPrice] of chosenPlot]
+;      [sell min-n-of 1 myPlots [wineQ] or leave fallow ]
+;
+;      sell stuff update capital
+;   ]
+;    [stop]
+;   [sell stuff update capital ]
+
+;  ]
+;end
 
 to institutinalChange
 end
@@ -358,7 +377,7 @@ sigma_GaussKernel
 sigma_GaussKernel
 1
 5
-1.4
+1.5
 0.1
 1
 NIL
@@ -410,7 +429,7 @@ MaximumElevation
 MaximumElevation
 300
 1000
-800.0
+1000.0
 1
 1
 NIL
@@ -459,7 +478,7 @@ CHOOSER
 ClimateScenario
 ClimateScenario
 "ParisAgreement" "BAU"
-1
+0
 
 MONITOR
 664
@@ -650,7 +669,7 @@ Opt_GSavgTemp
 Opt_GSavgTemp
 0
 30
-21.0
+21.1
 0.1
 1
 NIL
@@ -763,7 +782,7 @@ top
 top
 1
 2000
-1848.0
+2000.0
 1
 1
 NIL
@@ -795,7 +814,7 @@ Quality_>
 Quality_>
 0
 1
-0.91
+0.79
 0.01
 1
 NIL
@@ -892,6 +911,11 @@ manualArea?
 -1000
 
 @#$#@#$#@
+## NEXT
+
+
+
+
 ## WHAT IS IT?
 
 With a R-Netlogo interaction we create a 100x100 random raster for elevation using unform distribution and a Gaussian Kernel (neighbourhood = 9) to generate spatial autocorrelation and smooth the lattice.

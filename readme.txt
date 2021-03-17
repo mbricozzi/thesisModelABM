@@ -4,6 +4,8 @@ HOW TO MAKE IT WORK:
 In order to make the program work you must first initialize the NetLogo-R extension. 
 Follow the steps below to set your environment. 
 
+0) Install the R-extension in NetLogo
+
 1) Install R https://cran.r-project.org/ (IF MISSING)
 
 2) Open R and install the rJava package (run command:  install.packages(rJava))
@@ -53,7 +55,7 @@ To begin, determine the appropriate directory from your R installation to add to
 
 (For me in windows 10 worked to open the cmd and type :
 
-cd C:\Users\mbric\YOUR_USERNAME\Roaming\NetLogo\YOURNlogoVersion\r 
+cd C:\Users\<YOUR_USERNAME>\AppData\Roaming\NetLogo\<YOURNlogoVersion>\r 
 start .
 
 )
