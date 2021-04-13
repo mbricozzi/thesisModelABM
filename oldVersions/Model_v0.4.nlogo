@@ -1,4 +1,4 @@
-extensions [ gis palette r ]
+extensions [ gis palette r table ]
 
 ;# #################################################### #
 ;# --- Define globals, entities and state variables --- #
@@ -6,46 +6,49 @@ extensions [ gis palette r ]
 
 
 globals [
-  elevation-data
-  slope-data
-  aspect-data
-  sgk
-  minelev_i
-  maxelev_i
-  GSavgTemp ; Growing season average temperature
-  dataFarms
-  qualityStandard
-  giWinePrice
-  wineYield
+  elevation-data   ; Raster data
+  slope-data       ; necessary for GIS
+  soilQ-data       ; Extension
+
+
+  dataFarms       ; Just data on viticultural farms
+  qualityStandard ; First defined as the average quality of all farmed plots, then defined by endogenous rule changing process
+  giPrestige      ; Can be increased by the gi Board marketing investments
+  giWinePrice     ; Linear function of quality, GI label and GI prestige (first fixed to 1.5)
+  stdWinePrice    ; 1
+  wineYield       ; 50 hl/ha
+  bankruptcies    ; n of bankruptcies
 ]
 
-breed [farms farm]
-breed [giBoards giBoard]
-breed [landMkts landMkt]  ; I can also not use these market agents
-breed [wineMkts wineMkt]
-breed [ftokens ftoken]    ;Farm tokens
+breed [farms farm]         ; N. agents
+breed [giBoards giBoard]   ; One agent
+breed [ftokens ftoken]     ; Just tokens of Farms' patches to visualise farms
 
 
 patches-own [
-  elevation
-  slope
-  aspect
-  soilQ
-  microclimate
-  wineQ
-  owner
-  farmStead
-  varCost
-  landPrice   ; You need to define better the land price... function of quolity? now is constant at 10000 per hectare
-  giLabel     ; Bolean
+  elevation    ; Random raster uniform distribution smoothed with gaussian kernel
+  slope        ; Convolution of elevation
+  aspect       ; Convolution of elevation
+  soilQ        ; 0-1 Interval Randomly generated
+  microclimate ; GS avg Temperature downscaled with elevation data.
+  wineQ        ; 0-1 Interval weighted linear function of soilQ and microclimate
+  ageVines     ; Important, only after 3 years can produce
+  owner        ; Farm number or nobody
+  pastOwners   ; Agentset all past owners
+  farmStead    ; Bolean
+  varCost      ; For productive plots (ageVines >3); Increasing with slope
+  fixCost      ; For each plot owned
+  giLabel      ; Bolean
+  landPrice    ; Function of Quality and GI label
 ]
 
 farms-own [
   capital
-  mySlope
-  myPlots
-  myQuality
-  pastVintages
+  myPlots      ; Agentset farm's land
+  mySlope      ; Avg slope of myPlots, interesting for variable costs
+  myQuality    ; Avg quality of myPlots
+  pastVintages ; List, Memory on past vintages' quality
+  totalCost
 ]
 
 giBoards-own [
@@ -60,148 +63,182 @@ giBoards-own [
 to setup
   clear-all
   r:clear
-  initiate-globals
-  setup-raster
+  generate-elevationRaster
+  generate-soilQRaster
+  setup-slope
   setup-world
   setup-climate
   setup-quality
-  setup-landPrice
-  setup-varcost
+  initiate-globals
   setup-farmers
   setup-giBoard
-  set-giArea
-
+  setup-giArea
+  setup-landPrice
   reset-ticks
 end
 
-to initiate-globals
-  set GSavgTemp GSavgTemp_i
-  set dataFarms (list 3.284 678.887	1849.086)
 
-end
+;###################
+;# --- PATCHES --- #
+;###################
 
-
-;#
-;# --- PATCHES
-;#
-
-to setup-raster
-  ; NetLogo-R interaction to generate a randomised Gaussian Kernel Raster for elevation
+to generate-elevationRaster
+  ; NetLogo-R interaction to generate a randomised raster for elevation smoothed with a Gaussian Kernel
 
   ; Set up env variables to interact with R scripts
-  set sgk [] set sgk sigma_GaussKernel
-  set minelev_i [] set minelev_i MinimumElevation
-  set maxelev_i [] set maxelev_i MaximumElevation
+  let sgk (list sigma_Kernel)
+  let ngk (list dim_kernel)
+  let minelev_i (list minElevation)
+  let maxelev_i (list maxElevation)
   r:put "s" sgk
+  r:put "n" ngk
   r:put "Min" minelev_i
   r:put "Max" maxelev_i
+
+  ; Three lines create a 109x109 random raster from uniform ditribution with range defined by the globals MinimumElevation and MaximumElevation
+  r:eval "require(raster)"
+  r:eval "raster <- raster(ncols=109, nrows=109, xmn=-54, xmx=54, ymn=-54, ymx=54 )"
+  r:eval "raster[] <- runif(ncell(raster), min = Min, max = Max)"
+
+  r:eval ("source('C:/NetLogo_models/thesisModel/Rscripts/script_GaussKernel.R')")         ; load r file with function for gaussian kernel.
+
+  r:eval "r.sim <- focal(raster, w=GaussianKernel(s, n))"                                  ; Create autocorrelated raster using 9x9 Gaussian Kernel with a sigma= s
+
+
+  r:eval "e <- as(extent(-50, 50, -50, 50), 'SpatialPolygons')"                            ; Crop raster to 102x102
+  r:eval "crs(e) <- crs(r.sim)"
+  r:eval "r.final <- crop(r.sim, e)"
+
+  r:eval "writeRaster(r.final, 'C:/NetLogo_models/thesisModel/GIS/elevationRaster.asc', format = 'ascii', overwrite = T)"
+
+  ; Load the raster as a global variable
+  set elevation-data gis:load-dataset "C:/NetLogo_models/thesisModel/GIS/elevationRaster.asc"
+end
+
+to generate-soilQRaster
+  ; NetLogo-R interaction to generate a randomised raster for soil quality smoothed with a Gaussian Kernel
+
+  ; Set up env variables to interact with R scripts
+  let sgk (list sigma_Kernel)
+  let ngk (list dim_kernel)
+  let minSoilQ_i minSoilQ
+  let maxSoilQ_i maxSoilQ
+  r:put "s" sgk
+  r:put "n" ngk
+  r:put "Min" minSoilQ_i
+  r:put "Max" maxSoilQ_i
 
   ; Three lines create a 107x107 random raster from uniform ditribution with range defined by the globals MinimumElevation and MaximumElevation
   r:eval "require(raster)"
   r:eval "raster <- raster(ncols=107, nrows=107, xmn=-53, xmx=53, ymn=-53, ymx=53 )"
   r:eval "raster[] <- runif(ncell(raster), min = Min, max = Max)"
 
-  r:eval ("source('C:/NetLogo_models/thesisModel/Rscripts/script_raster.R')")         ; load function for gaussian kernel.
+  r:eval ("source('C:/NetLogo_models/thesisModel/Rscripts/script_GaussKernel.R')")         ; load r file with function for gaussian kernel.
 
-  r:eval "r.sim <- focal(raster, w=GaussianKernel(s, 9))"                             ; Create autocorrelated raster using 9x9 Gaussian Kernel with a sigma= s
+  r:eval "r.sim <- focal(raster, w=GaussianKernel(s, n))"                                  ; Create autocorrelated raster using 9x9 Gaussian Kernel with a sigma= s
 
 
-  r:eval "e <- as(extent(-49, 49, -49, 49), 'SpatialPolygons')"                       ; Crop raster to 100x100
+  r:eval "e <- as(extent(-49, 49, -49, 49), 'SpatialPolygons')"                            ; Crop raster to 100x100
   r:eval "crs(e) <- crs(r.sim)"
   r:eval "r.final <- crop(r.sim, e)"
 
-  r:eval "writeRaster(r.final, 'C:/NetLogo_models/thesisModel/GIS/rasterFile.asc', format = 'ascii', overwrite = T)"
+  r:eval "writeRaster(r.final, 'C:/NetLogo_models/thesisModel/GIS/soilQRaster.asc', format = 'ascii', overwrite = T)"
 
-end
-
-to setup-world
-  ; Use data from raster file to setup world
-  set elevation-data gis:load-dataset "C:/NetLogo_models/thesisModel/GIS/rasterFile.asc"
-  resize-world 0 (gis:width-of  elevation-data) 0 (gis:height-of elevation-data)
-  gis:set-world-envelope gis:envelope-of elevation-data
-
-  ; display elevation in patches
-  gis:apply-raster elevation-data elevation
-
-
-  let minelev (min [elevation] of patches)
-  let maxelev (max [elevation] of patches)
-
-
-  ask patches
-  [
-    if (elevation <= 0) or (elevation >= 0)
-    [set pcolor palette:scale-scheme  "Divergent" "BrBG" 8 elevation maxelev minelev                               ; Easiest way with fixed sequential scale
-     ;set pcolor palette:scale-gradient [ [0 109 44] [254 224 139] [84 48 5] ] elevation minelev maxelev               ; Manual three coulour with RGB
-    ]
-  ]
-  setup-slopeAspect
+  ; Load the raster as a global variable
+  set soilQ-data gis:load-dataset "C:/NetLogo_models/thesisModel/GIS/soilQRaster.asc"
 end
 
 
-to setup-slopeAspect ; ATTENTION: in this way you loose first and last rows and col for slope and aspect you should calculate this earlier before cropping to 100x100
+to setup-slope
 
-  let horizontal-gradient gis:convolve elevation-data 3 3 [ 1 1 1 0 0 0 -1 -1 -1 ] 1 1
-  let vertical-gradient gis:convolve elevation-data 3 3 [ 1 0 -1 1 0 -1 1 0 -1 ] 1 1
+  let horizontal-gradient gis:convolve elevation-data 3 3 [ -1 0 1 -2 0 2 -1 0 1 ] 1 1
+  let vertical-gradient gis:convolve elevation-data 3 3 [ 1 2 1 0 0 0 -1 -2 -1 ] 1 1
   set slope-data gis:create-raster gis:width-of elevation-data gis:height-of elevation-data gis:envelope-of elevation-data
-  set aspect-data gis:create-raster gis:width-of elevation-data gis:height-of elevation-data gis:envelope-of elevation-data
+
   let x 0
   repeat (gis:width-of slope-data)
   [ let y 0
     repeat (gis:height-of slope-data)
-    [ let gx gis:raster-value horizontal-gradient x y
-      let gy gis:raster-value vertical-gradient x y
+    [ let gx (gis:raster-value horizontal-gradient x y)
+      let gy (gis:raster-value vertical-gradient x y )
       if ((gx <= 0) or (gx >= 0)) and ((gy <= 0) or (gy >= 0))
-      [ let s sqrt ((gx * gx) + (gy * gy))
+      [ set gx (gx / 800)   ; 800 = 80 * patch size (1 ha = 100x100 m)
+        set gy (gy / 800)
+        let s sqrt ((gx * gx) + (gy * gy))
         gis:set-raster-value slope-data x y s
-        ifelse (gx != 0) or (gy != 0)
-        [ gis:set-raster-value aspect-data x y atan gy gx ]
-        [ gis:set-raster-value aspect-data x y 0 ] ]
+      ]
       set y y + 1 ]
     set x x + 1 ]
-  gis:set-sampling-method aspect-data "bilinear"
-
-  gis:apply-raster slope-data slope
-  gis:apply-raster aspect-data aspect
-
-  ; rescale slope on a 0-1 scale
-  let minSlope min [slope] of patches
-  let maxSlope max [slope] of patches
-  ask patches [set slope ((slope - minSlope ) / (maxSlope - minSlope))]
-
 end
 
+
+
+to setup-world
+  ; Use data from raster file to setup world
+  resize-world 0 gis:width-of soilQ-data 0 gis:height-of soilQ-data
+  gis:set-world-envelope gis:envelope-of soilQ-data
+
+  ; Apply elevation, slope and soil quality data on patches
+  gis:apply-raster elevation-data elevation
+  gis:apply-raster slope-data slope
+  gis:apply-raster soilQ-data soilQ
+
+  let minelev (min [elevation] of patches)
+  let maxelev (max [elevation] of patches)
+
+  ask patches
+  [
+    if (elevation <= 0) or (elevation >= 0)
+    [
+      set pcolor palette:scale-scheme  "Divergent" "BrBG" 8 elevation maxelev minelev                                   ; Easiest way with fixed sequential scale
+      set owner nobody
+      set pastOwners []
+    ]
+  ]
+end
+
+
 to setup-climate
-  let max-elevation max [elevation] of patches
-  ask patches [
+  let mean-elev mean [elevation] of patches
+  ask patches
+  [
     ifelse Dry?
-    [set microclimate GSavgTemp + 0.0098 * (max-elevation - elevation)]
-    [set microclimate GSavgTemp + 0.006 *  (max-elevation - elevation)]  ; add increase dep on elevation.
+    [
+      ifelse elevation <= mean-elev
+      [set microclimate avgGStemp + 0.0098 * (mean-elev - elevation)]
+      [set microclimate avgGStemp - 0.0098 * (elevation - mean-elev)]
+    ]
+    [
+      ifelse elevation <= mean-elev
+      [set microclimate avgGStemp + 0.006 * (mean-elev - elevation)]
+      [set microclimate avgGStemp - 0.006 * (elevation - mean-elev)]
+    ]
   ]
 end
 
 to setup-quality
-  ask patches [set SoilQ (random-float 1 )]
-  repeat SmoothS [ diffuse SoilQ 0.5]
-  ask patches [
-    set wineQ (((1 - climateW) * SoilQ) + climateW * (1 - (abs((Opt_GSavgTemp - microclimate)/ Opt_GSavgTemp))))  ; substitute with a better funciton also including slope and
+  ask patches
+  [
+    set wineQ (((1 - climateW) * soilQ) + climateW * (1 - (abs((optGStemp - microclimate)/ optGStemp))))
   ]
 end
 
 
-to setup-landPrice
-  ask patches [set landPrice ([wineQ] of self) * 10000]
-end
+to initiate-globals
+;  set GSavgTemp GSavgTemp_i
+  set dataFarms (list 3.284 678.887	1849.086)                ; Note: Eurostat data on average farm size, numb of farms and hectares of PDO wine regions in ITA, FRA, SPA, POR, GER
+  set wineYield 5000                                         ; Max production per hectare 50 hectolitres good approximation for PDO wine regions
+  set giWinePrice 1.5
+  set stdWinePrice 1
+  ask patches [set varCost 20000 * slope
+               set fixCost 2500]                             ; is you sell wine at normal price of 1 can barely cover variable costs of one hectare
+end                                                          ; Arbitrary variable cost increasing with slope (max cost 6000 for most slopy plots)
 
-to setup-varCost
-  ask patches [set varCost 2000 + slope * 4000] ; totally arbitrary.... max varaCost per plot is 6000 for the most slopy plots
-
-end
 
 
-;#
-;# --- AGENTS
-;#
+;##################
+;# --- AGENTS --- #
+;##################
 
 ;# --Farmers
 
@@ -210,47 +247,95 @@ to setup-farmers
   set-default-shape ftokens "square 3"
 
 ; MAX ONE FARMS PER PLOT and differenciate color from neighbouring farms
-  ask n-of nFarms patches [
-    sprout-farms 1
-    set owner [who] of farms-here
-    set farmStead 1
-    ask farms-here [
-      let poscol filter [ x -> not member? x ([color] of (other farms in-radius 6)) ] base-colors
-      ifelse not empty? poscol [set color one-of poscol] [set color one-of base-colors]
+
+;  ask n-of nFarms patches with [not any? other farms-on neighbors]
+;  [
+;    sprout-farms 1
+;    set owner [who] of farms-here
+;    set farmStead 1
+;    set ageVines 20  ; let's assume that age is kept constant to 20 years in each hectare age in only interesting when new vines are installed
+;    ask farms-here [
+;      let poscol filter [ x -> not member? x ([color] of (other farms in-radius 6)) ] base-colors
+;      ifelse not empty? poscol [set color one-of poscol] [set color one-of base-colors]
+;    ]
+;  ]
+;  ask farms [
+;;EACH FARM LOOKS AROUND ITS NEIGHBOURHOOD AND PICKS 0 to 8 plots if they have no other farms on already.
+;    set myPlots (patch-set patch-here (n-of random (count neighbors with [owner = nobody] - 2) neighbors with [owner = nobody]))
+;    ask myPlots [
+;      set owner [who] of myself
+;      sprout-fTokens 1
+;      set ageVines 20
+;      ]
+;; Just a square sign to grafically represents farms land endowments
+;    ask fTokens-on myPlots [set color [color] of myself]
+;; Farms calculate their average quality
+;    set myQuality mean [wineQ] of myPlots
+;    set pastVintages (list )
+;; Capital higher for bigger farms
+;    set capital 10000 * (count myPlots)
+;  ]
+
+; ALTERNATIVE SETUP
+  ask n-of totArea patches
+  [
+    sprout-fTokens 1
+  ]
+
+  create-farms nFarms
+  [
+    move-to one-of patches with [not any? farms-here and any? fTokens-here]
+    let poscol filter [ x -> not member? x ([color] of (other farms in-radius 4)) ] base-colors
+    ifelse not empty? poscol [set color one-of poscol] [set color one-of base-colors]
+
+    ask patch-here
+    [
+      set owner farms-here
+      set farmStead 1
+      set ageVines 20
     ]
   ]
-  ask farms [
-    set capital 10000
 
-;EACH FARM LOOKS AROUND ITS NEIGHBOURHOOD AND PICKS 0 to 8 plots if they have no other farms on already.
-    set myPlots (patch-set patch-here (n-of random (count neighbors with [owner = 0]) neighbors with [owner = 0]))
-    ask myPlots [
-      set owner [who] of myself
-      sprout-fTokens 1
-      ]
-; Just a square sign to grafically represents farms land endowments
-    ask fTokens-on myPlots [set color [color] of myself]
-; Farms calculate their average quality
-    set myQuality mean [wineQ] of myPlots
-    set pastVintages (list )
+  ask fTokens
+  [
+    set color [color] of min-one-of farms [distance myself]
+
+    ask patch-here
+    [
+      set owner min-one-of farms [distance myself]
+      set ageVines 20
+    ]
   ]
+
+  ask farms
+  [
+    set myPlots patches with [owner = myself]
+    set myQuality mean [wineQ] of myPlots
+    set pastVintages []
+    set capital 5000 * (count myPlots)
+  ]
+
+
 end
 
 
 ;# --GI
 
-to set-giArea
-  set qualityStandard mean [wineQ] of patches with [any? fTokens-here]
+to setup-giArea
+  set qualityStandard mean [wineQ] of patches with [any? fTokens-here]  ; Quality standard as average of all farms quality
+
   ifelse manualArea?
-  [let giPatches max-n-of giArea patches [wineQ]            ; GI AREA manually DEFINED in hectares IT WOULD MAKE SENSE TO LOCATE FARMS IN THE x BEST PATCHES AT THE START.
-   ask giPatches [set giLabel 1]]
-  [let giPatches patches with [wineQ >= qualityStandard]    ; GI AREA DEFINED with QUALITY STANDARD
+
+; GI AREA manually DEFINED in hectares IT WOULD MAKE SENSE TO LOCATE FARMS IN THE x BEST PATCHES AT THE START.
+  [let giPatches max-n-of giArea patches [wineQ]
+   ask giPatches [set giLabel 1 set plabel-color black set plabel giLabel]]
+
+; GI AREA DEFINED with QUALITY STANDARD
+  [let giPatches patches with [wineQ >= qualityStandard]
    ask giPatches [set giLabel 1
                   set plabel-color black set plabel giLabel]
   ]
-
 end
-
 
 to setup-giBoard
   set-default-shape giBoards "giboard"
@@ -259,6 +344,30 @@ to setup-giBoard
     set capital 100 * nFarms
   ]
 end
+
+
+;###########################
+;# --- OTHER VARIABLES --- #
+;###########################
+
+
+to setup-landPrice
+  ask patches [set landPrice ((wineQ * 10000) + (giLabel * 5000))]
+end
+
+
+to setup-giPrestige
+;  set giPrestige (min (list (mean [wineQ] of giPatches) brandValueStock)   ])
+end
+
+
+to setup-brandValueStock
+end
+
+
+to setup-winePrice
+end
+
 
 
 ;# ##################################### #
@@ -281,23 +390,16 @@ to climateChange
   ask patches [
     ifelse ClimateScenario = "ParisAgreement"
     [set microclimate microclimate + 0.02
-     update-wineQuality
-     update-landPrices]
+     update-wineQuality]
     [set microclimate microclimate + 0.035
-     update-wineQuality
-     update-landPrices]
-
+     update-wineQuality]
   ]
-
 end
 
 to update-wineQuality
-  set wineQ (((1 - climateW) * SoilQ) + climateW * (1 - (abs((Opt_GSavgTemp - microclimate)/ Opt_GSavgTemp))))
+  set wineQ (((1 - climateW) * SoilQ) + climateW * (1 - (abs((optGStemp - microclimate)/ optGStemp))))
 end
 
-to update-landPrices
-  set landPrice ([wineQ] of self) * 10000
-end
 
 to operationalArena
   giBoardAction
@@ -313,68 +415,96 @@ end
 
 to farmersHeuristic
   ask farms [
-;     YOU NEED A LOOP HERE!!!!
-   loop [
-;   # Check QUALITY
-    set myQuality mean [wineQ] of myPlots
-    let myLowQuality min [wineQ] of myPlots
 
-    ifelse myQuality < qualityStandard
+    loop [
+;   # Check QUALITY
+      set myQuality mean [wineQ] of myPlots
+      set totalCost sum [fixCost] of myPlots + sum [varCost] of myPlots with [ageVines > 3]
+
+      ifelse myQuality < qualityStandard
 
 ;   1) Quatilty is lower than standard
 
-;     # Check neighbouring plots with higher quality
-      [let interestingPlots ifelse-value inRadius? [patch-set (patches in-radius radius with [wineQ > qualityStandard and owner = 0])]
-                                                   [patch-set ([neighbors] of myPlots with [wineQ > qualityStandard and owner = 0])] ; [neighbors] of myPlots or patches in-radius x? include distance from farmstead in cost calculation
+;     # Check neighbouring plots with quality higher than standard and no owner
+      [
+        let interestingPlots ifelse-value inRadius? [patch-set (patches in-radius radius with [wineQ > qualityStandard and owner = nobody  and (member? [who] of myself pastOwners) = false])]
+                                                    [patch-set ([neighbors] of myPlots with [wineQ > qualityStandard and owner = nobody and (member? [who] of myself pastOwners) = false])]      ; [neighbors] of myPlots or patches in-radius x? include distance from farmstead in cost calculation
 
-
-      ifelse any? interestingPlots
+        ifelse any? interestingPlots
 
 ;     1.1) There is at least one interesting plot
         [
-          ifelse capital >=   (first ([landPrice] of min-n-of 1 interestingPlots [landPrice]))   ; You have to put the total cost as a function of num of plots and average elevation.
+          let installCost fixCost
+          ifelse capital >= (first ([landPrice] of interestingPlots with-min [landPrice])) + riskAversion * totalCost + installCost  ; Can buy but also need money for production in that year
 
 ;         1.1.1) The farmer has enough capital to buy
 ;         # BUY NEW PLOT with higher quality and lowest price
-          [let chosenPlot min-n-of 1 interestingPlots [landPrice]
-           ask chosenPlot [set owner [who] of myself               ; ATTENTION HERE EACH FARM DOES THIS ONE AFTER THE OTHER, SOMEBODY WILL RANDOMLY BE SELECTED TO MOVE FIRST THEREFORE HAVING MORE PLOTS TO CHOOSE FROM.
-                           sprout-fTokens 1]
-           ask fTokens-on chosenPlot [set color [color] of myself]
-           set myPlots (patch-set myPlots chosenPlot)
-           set capital capital - first [landPrice] of chosenPlot]   ; they are list you must select the first "0th" element of the list
+          [
+            let chosenPlot interestingPlots with-min [landPrice]
+            ask chosenPlot [set owner [who] of myself                                        ; ATTENTION HERE EACH FARM DOES THIS ONE AFTER THE OTHER, SOMEBODY WILL RANDOMLY BE SELECTED TO MOVE FIRST THEREFORE HAVING MORE PLOTS TO CHOOSE FROM.
+                            sprout-fTokens 1
+                            set ageVines 1]
+            ask fTokens-on chosenPlot [set color [color] of myself]
+            set myPlots (patch-set myPlots chosenPlot)
+            set capital capital - first [landPrice] of chosenPlot                            ; they are list you must select the first "0th" element of the list
+          ]
+
 
 ;         1.1.2) The farmer has not enough capital to buy
 ;         # SELL PLOT with the lowest quality
-          [ if  (myPlots with [farmStead = 0]) = no-patches [ask fTokens-on patch-here [die] die]
+          [
+            if  (myPlots with [farmStead = 0]) = no-patches [ask patch-here [set owner nobody
+                                                                             set pastOwners insert-item (length pastOwners) pastOwners ([who] of myself)]
+                                                                             ask fTokens-on patch-here [die]
+                                                                             die]
             let chosenPlot myPlots with [farmStead = 0] with-min [wineQ]
-            ask chosenPlot [set owner 0]
+            ask chosenPlot [set owner nobody set pastOwners insert-item (length pastOwners) pastOwners ([who] of myself) set ageVines 0]
             ask fTokens-on chosenPlot [die]
             set myPlots myPlots with [not member? self patch-set chosenPlot]
-            set capital capital + first [landPrice] of chosenPlot]
+            set capital capital + first [landPrice] of chosenPlot
+          ]
         ]
 ;     1.2) There are no interesting plots
 ;       # SELL PLOT with the lowest quality
-        [if  (myPlots with [farmStead = 0]) = no-patches [ask fTokens-on patch-here [die] die]
-         let chosenPlot myPlots with [farmStead = 0] with-min [wineQ]
-         ask chosenPlot [set owner 0]
-         ask fTokens-on chosenPlot [die]
-         set myPlots myPlots with [not member? self patch-set chosenPlot]
-         set capital capital + first [landPrice] of chosenPlot
-
+        [
+          if  (myPlots with [farmStead = 0]) = no-patches [ask patch-here [set owner nobody
+                                                                           set pastOwners insert-item (length pastOwners) pastOwners ([who] of myself)]
+                                                                           ask fTokens-on patch-here [die]
+                                                                           die]
+          let chosenPlot myPlots with [farmStead = 0] with-min [wineQ]
+          ask chosenPlot [set owner nobody set pastOwners insert-item (length pastOwners) pastOwners ([who] of myself) set ageVines 0]
+          ask fTokens-on chosenPlot [die]
+          set myPlots myPlots with [not member? self patch-set chosenPlot]
+          set capital capital + first [landPrice] of chosenPlot
         ]
       ]
 
 ;   2) Quatilty is higher than standard
 ;     # Just sell grapes and end.
-      [set capital capital + (giWinePrice * (wineYield * count myPlots))]
-;       set pastVintages insert-item (length pastVintages) pastVintages (list mean [wineQ] of myPlots)   ;Save quality of vintage in farm's memory
-       stop
+      [
+        set totalCost sum [fixCost] of myPlots + sum [varCost] of myPlots with [ageVines > 3]
+        if capital < totalCost  [
+                                  set bankruptcies bankruptcies + 1
+                                  ask myPlots [
+                                                set owner nobody
+                                                set pastOwners insert-item (length pastOwners) pastOwners ([who] of myself)
+                                                ask fTokens-on self [die]
+                                              ]
+                                  die
+                                ]
+        let totalRevenue ((giWinePrice * (wineYield * count myPlots with [ageVines >= 3 and giLabel = 1] )) + (stdWinePrice * (wineYield * count myPlots with [ageVines >= 3 and giLabel = 0])))
+        set capital (capital - totalCost + totalRevenue)   ; Now they can only sell at GI price from plots with high quality
+        set pastVintages insert-item (length pastVintages) pastVintages (mean [wineQ] of myPlots)        ; Save quality of vintage in farm's memory
+        if ageVines < 20 [set ageVines ageVines + 1]
+        stop
+      ]
     ]
   ]
 end
 
 
-
+to voting
+end
 
 
 to institutinalChange
@@ -388,15 +518,19 @@ to giBoardAction
   refreshElev
   ask patches with [giLabel = 1] [set plabel-color black set plabel giLabel]
   ask patches with [giLabel = 0] [set plabel ""]
-  set giWinePrice 1
+  ask patches [update-landPrices
+    set giWinePrice 1]
+
+end
+
+
+to update-landPrices
+  set landPrice ((wineQ * 10000) + (giLabel * 5000))
 end
 
 
 
-to voting
-end
-
-
+;# GRAPHIC STUFF
 ;-----------------------------------------
 
 to refreshElev
@@ -412,10 +546,10 @@ ask patches
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
-71
-10
-659
-599
+7
+8
+595
+597
 -1
 -1
 5.8
@@ -439,10 +573,10 @@ Year
 30.0
 
 BUTTON
-5
-10
-68
-43
+600
+30
+656
+64
 NIL
 setup
 NIL
@@ -455,26 +589,11 @@ NIL
 NIL
 1
 
-SLIDER
-663
-106
-836
-139
-sigma_GaussKernel
-sigma_GaussKernel
-1
-5
-1.4
-0.1
-1
-NIL
-HORIZONTAL
-
 MONITOR
-664
-154
-753
-199
+670
+225
+759
+270
 Mean elevation
 precision mean [elevation] of patches 3
 17
@@ -482,118 +601,51 @@ precision mean [elevation] of patches 3
 11
 
 MONITOR
-754
-154
-836
-199
+760
+225
+842
+270
 SD elevation
 precision standard-deviation [elevation] of patches 3
 17
 1
 11
 
-SLIDER
-663
-32
-835
-65
-MinimumElevation
-MinimumElevation
-0
-300
-0.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-663
-69
-835
-102
-MaximumElevation
-MaximumElevation
-300
-1000
-800.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-862
-31
-1047
-64
-GSavgTemp_i
-GSavgTemp_i
-0
-30
-19.0
-0.1
-1
-NIL
-HORIZONTAL
-
 TEXTBOX
-665
-12
-815
-30
+670
+10
+820
+28
 RASTER
 11
 0.0
 1
 
 TEXTBOX
-863
-10
-1013
-28
+607
+369
+657
+387
 CLIMATE
 11
 0.0
 1
 
 CHOOSER
-862
-67
-1047
-112
+880
+30
+1065
+75
 ClimateScenario
 ClimateScenario
 "ParisAgreement" "BAU"
 0
 
 MONITOR
-664
-199
-753
-244
-Max elevation
-precision max [elevation] of patches 3
-17
-1
-11
-
-MONITOR
-664
-244
-753
-289
-Min elevation
-precision min [elevation] of patches 3
-17
-1
-11
-
-MONITOR
-968
-117
-1045
-162
+605
+455
+670
+500
 Mean temp
 precision mean [microclimate] of patches 3
 17
@@ -601,10 +653,10 @@ precision mean [microclimate] of patches 3
 11
 
 MONITOR
-968
-167
-1045
-212
+670
+455
+735
+500
 Max temp
 precision max [microclimate] of patches 3
 17
@@ -612,10 +664,10 @@ precision max [microclimate] of patches 3
 11
 
 MONITOR
-967
-216
-1045
-261
+735
+455
+801
+500
 Min temp
 precision min [microclimate] of patches 3
 17
@@ -623,10 +675,10 @@ precision min [microclimate] of patches 3
 11
 
 BUTTON
-663
-297
-723
-330
+600
+110
+660
+143
 Elevation
 refreshElev
 NIL
@@ -640,10 +692,10 @@ NIL
 1
 
 BUTTON
-663
-333
-723
-366
+600
+146
+660
+179
 Slope
 let minslope (min [slope] of patches)\nlet maxslope (max [slope] of patches)\n\nask patches\n  [\n    if (slope <= 0) or (slope >= 0)\n    [set pcolor palette:scale-scheme   \"Sequential\"  \"YlGnBu\" 8 slope minslope maxslope]\n    ]
 NIL
@@ -656,28 +708,11 @@ NIL
 NIL
 1
 
-BUTTON
-663
-369
-723
-402
-Aspect
-let minaspect (min [aspect] of patches)\nlet maxaspect (max [aspect] of patches)\n\nask patches\n  [\n    if (aspect <= 0) or (aspect >= 0)\n    [set pcolor palette:scale-scheme    \"Sequential\"  \"Greys\" 8 aspect minaspect maxaspect]\n    ]
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
 SWITCH
-862
-116
-965
-149
+750
+405
+840
+438
 Dry?
 Dry?
 0
@@ -685,89 +720,52 @@ Dry?
 -1000
 
 TEXTBOX
-862
-269
-1012
-287
+605
+510
+755
+528
 QUALITY
 11
 0.0
 1
 
 TEXTBOX
-1077
-11
-1227
-29
+885
+115
+1035
+133
 FARMERS
 11
 0.0
 1
 
 TEXTBOX
-1286
-13
-1436
-31
+1614
+35
+1764
+53
 GI Board
 11
 0.0
 1
 
 MONITOR
-730
-296
-794
-341
-Max slope
-precision max [slope] of patches 3
-17
-1
-11
-
-MONITOR
-730
-342
-795
-387
+670
+270
+736
+315
 Mean slope
 precision mean [slope] of patches 3
 17
 1
 11
 
-MONITOR
-730
-389
-794
-434
-Min slope
-precision min [slope] of patches 3
-17
-1
-11
-
-SLIDER
-855
-299
-1045
-332
-Opt_GSavgTemp
-Opt_GSavgTemp
-0
-30
-21.0
-0.1
-1
-NIL
-HORIZONTAL
-
 BUTTON
-856
-371
-929
-404
-Wine Quality
+600
+215
+660
+248
+wineQ
 \nlet minWineQ  min  [WineQ] of patches\nlet maxWineQ  max  [WineQ] of patches\n\nask patches\n  [\n    if (WineQ <= 0) or (WineQ >= 0)\n    [set pcolor palette:scale-scheme \"Sequential\" \"Purples\" 8 WineQ minWineQ maxWineQ]\n    ]
 NIL
 1
@@ -780,11 +778,11 @@ NIL
 1
 
 BUTTON
-862
-154
-965
-187
-Microclimate
+600
+250
+660
+283
+Climate
 let minmicroclim (min [microclimate] of patches)\nlet maxmicroclim (max [microclimate] of patches)\nask patches\n  [\n    if (microclimate <= 0) or (microclimate >= 0)\n    [set pcolor palette:scale-scheme  \"Sequential\"  \"Reds\" 8 microclimate minmicroclim maxmicroclim]\n    ]
 NIL
 1
@@ -796,43 +794,11 @@ NIL
 NIL
 1
 
-BUTTON
-856
-335
-930
-368
-Soil Quality
-let minSQ min [SoilQ] of patches \nlet maxSQ max [SoilQ] of patches \n\nask patches\n  [\n    if (WineQ <= 0) or (WineQ >= 0)\n    [set pcolor palette:scale-scheme \"Sequential\" \"Greens\" 8 SoilQ minSQ maxSQ]\n    ]
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
 SLIDER
-931
-334
-1045
-367
-SmoothS
-SmoothS
-1
-10
-8.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-931
-371
-1045
-404
+605
+535
+706
+568
 climateW
 climateW
 0
@@ -844,103 +810,13 @@ NIL
 HORIZONTAL
 
 BUTTON
-856
-408
-931
-441
-Show
-  \nlet minWineQ  min  [WineQ] of patches\nlet maxWineQ  max  [WineQ] of patches\n\nask patches\n  [\n    if (WineQ <= 0) or (WineQ >= 0)\n    [set pcolor palette:scale-scheme \"Sequential\" \"Purples\" 9 WineQ minWineQ maxWineQ]\n    ]\n  \n  \n  \n  let bestp max-n-of top patches [wineQ]\n  ask bestp [set pcolor yellow]\n  
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-SLIDER
-932
-408
-1045
-441
-top
-top
-1
-2000
-2000.0
-1
-1
-NIL
-HORIZONTAL
-
-BUTTON
-857
-444
-931
-477
-Show
-\nlet minWineQ  min  [WineQ] of patches\nlet maxWineQ  max  [WineQ] of patches\n\nask patches\n  [\n    if (WineQ <= 0) or (WineQ >= 0)\n    [set pcolor palette:scale-scheme \"Sequential\" \"Purples\" 9 WineQ minWineQ maxWineQ]\n    ]\n\n\nask patches [\nif wineQ > Quality_> [set pcolor yellow]]
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-SLIDER
-932
-444
-1045
-477
-Quality_>
-Quality_>
-0
-1
-0.79
-0.01
-1
-NIL
-HORIZONTAL
-
-SLIDER
-1070
-31
-1254
-64
-nFarms
-nFarms
-1
-1000
-678.0
-1
-1
-NIL
-HORIZONTAL
-
-MONITOR
-858
-481
-955
-526
-% Patches > 0.8
-(count patches with [wineq > 0.8]) / count patches
-17
-1
-11
-
-BUTTON
-4
-51
-68
-84
+1075
+35
+1131
+69
 GO 50
-go\nif ticks = 50 [stop]
-T
+repeat 50\n[\n go\n]
+NIL
 1
 T
 OBSERVER
@@ -951,25 +827,25 @@ NIL
 1
 
 SLIDER
-1070
-103
-1163
-136
+1610
+95
+1703
+128
 giArea
 giArea
 676
 7324
-1849.0
+2636.0
 1
 1
 NIL
 HORIZONTAL
 
 MONITOR
-1069
-139
-1128
-184
+1610
+130
+1669
+175
 GI AREA
 (count patches with [giLabel = 1])
 17
@@ -977,10 +853,10 @@ GI AREA
 11
 
 SWITCH
-1070
-66
-1178
-99
+1610
+58
+1718
+91
 manualArea?
 manualArea?
 1
@@ -988,10 +864,10 @@ manualArea?
 -1000
 
 MONITOR
-1129
-140
-1179
-185
+885
+195
+935
+240
 Farms
 count farms
 17
@@ -999,53 +875,43 @@ count farms
 11
 
 MONITOR
-956
-481
-1047
-526
-Quality Standard
+725
+525
+795
+570
+Quality STD
 precision qualityStandard 4
 17
 1
 11
 
 MONITOR
-1180
-140
-1254
-185
+937
+194
+1010
+239
 Mean Capital
-precision mean [capital] of farms 3
+precision mean [capital] of farms 2
 17
 1
 11
 
-TEXTBOX
-1071
-193
-1311
-266
-TWO WIDELY DIFFERENT SCENARIOS HERE: \nif you allow farmers to buy new patches from in a certain radius from the farmsted or only in the neighbourhood of its own plots. 
-9
-15.0
-1
-
 SWITCH
-1073
-254
-1163
-287
+885
+155
+977
+188
 inRadius?
 inRadius?
-1
+0
 1
 -1000
 
 SLIDER
-1165
-254
-1258
-287
+978
+155
+1070
+188
 radius
 radius
 1
@@ -1056,41 +922,279 @@ radius
 NIL
 HORIZONTAL
 
-PLOT
+MONITOR
+1009
+194
 1072
-294
-1232
-415
-Count GI-AREA
-Time
-Number
-0.0
-50.0
-0.0
-6000.0
-true
-false
-"" ""
-PENS
-"pen-1" 1.0 0 -8630108 true "" "plot count patches with [giLabel = 1]"
+239
+Mean Size
+precision mean [count myPlots] of farms 2
+17
+1
+11
+
+BUTTON
+1135
+35
+1190
+69
+GO once
+go
+NIL
+1
+T
+OBSERVER
+NIL
+G
+NIL
+NIL
+1
 
 PLOT
-1073
-417
-1233
-538
-Count Farms
-Time
-Number
+975
+460
+1159
+588
+Distribution Capital
+NIL
+NIL
 0.0
-50.0
+10.0
 0.0
-1000.0
-true
+500.0
 false
-"" ""
+false
+"set-histogram-num-bars 10\nset-plot-x-range min [capital] of farms max [capital] of farms \n " "set-histogram-num-bars 10\nset-plot-x-range min [capital] of farms max [capital] of farms "
 PENS
-"default" 1.0 0 -2674135 true "" "plot count Farms"
+"pen-0" 100.0 1 -6459832 true "" "histogram [capital] of farms"
+
+MONITOR
+1075
+195
+1149
+240
+LowQ Farms
+count farms with [myquality < qualitystandard]
+17
+1
+11
+
+MONITOR
+1152
+194
+1236
+239
+Bankrupt
+bankruptcies
+17
+1
+11
+
+TEXTBOX
+1520
+138
+1591
+156
+Why so many??
+8
+15.0
+1
+
+MONITOR
+1672
+130
+1753
+175
+Cult GI Area
+count patches with [any? ftokens-here and giLabel = 1]
+17
+1
+11
+
+SLIDER
+747
+168
+839
+201
+dim_kernel
+dim_kernel
+3
+9
+9.0
+2
+1
+NIL
+HORIZONTAL
+
+BUTTON
+600
+180
+660
+213
+soilQ
+let minSQ min [SoilQ] of patches \nlet maxSQ max [SoilQ] of patches \n\nask patches\n  [\n    if (WineQ <= 0) or (WineQ >= 0)\n    [set pcolor palette:scale-scheme \"Sequential\" \"Greens\" 8 SoilQ minSQ maxSQ]\n    ]
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+INPUTBOX
+668
+30
+743
+90
+minElevation
+0.0
+1
+0
+Number
+
+INPUTBOX
+745
+30
+824
+90
+maxElevation
+800.0
+1
+0
+Number
+
+INPUTBOX
+668
+92
+743
+152
+minSoilQ
+0.0
+1
+0
+Number
+
+INPUTBOX
+745
+91
+824
+151
+maxSoilQ
+1.0
+1
+0
+Number
+
+INPUTBOX
+668
+154
+744
+214
+sigma_Kernel
+2.0
+1
+0
+Number
+
+INPUTBOX
+605
+390
+678
+450
+avgGStemp
+17.0
+1
+0
+Number
+
+INPUTBOX
+680
+390
+748
+450
+optGStemp
+17.0
+1
+0
+Number
+
+MONITOR
+735
+270
+795
+315
+SD slope
+precision standard-deviation [slope] of patches 3
+17
+1
+11
+
+MONITOR
+670
+315
+736
+360
+Mean soilQ
+precision mean [soilQ] of patches 3
+17
+1
+11
+
+MONITOR
+735
+315
+793
+360
+SD soilQ
+precision standard-deviation [soilQ] of patches 3
+17
+1
+11
+
+TEXTBOX
+600
+95
+640
+113
+VIEW:
+11
+0.0
+1
+
+INPUTBOX
+950
+85
+1010
+145
+nFarms
+680.0
+1
+0
+Number
+
+INPUTBOX
+1015
+85
+1070
+145
+totArea
+1850.0
+1
+0
+Number
+
+MONITOR
+795
+525
+865
+570
+GI AREA
+(count patches with [giLabel = 1])/(count patches)
+17
+1
+11
 
 @#$#@#$#@
 ## NEXT
@@ -1480,5 +1584,5 @@ true
 Line -7500403 true 150 150 90 180
 Line -7500403 true 150 150 210 180
 @#$#@#$#@
-0
+1
 @#$#@#$#@

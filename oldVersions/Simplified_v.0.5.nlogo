@@ -5,8 +5,6 @@ breed [ftokens ftoken]     ; Just Farms' patches tokens to visualise farms
 globals [
   nFarms           ; 100
   wineYield        ; 50 hl/ha
-  GSavgTemp        ; 19
-  Opt_GSavgTemp    ; 21
   qualityStandard  ; mean wineQ of all starting vine plots
   giWinePrice      ; 1.5
   stdWinePrice     ; 1
@@ -15,9 +13,9 @@ globals [
   globalPlantingRights
 
   giFees
-  collBrandValue
+  colBrandValue
   qualityLev
-  mktExpLev
+  colBrandLev
   giFarmsLev
   giPrestige
 
@@ -83,14 +81,15 @@ to initiate-globals
   set nFarms 100
   set giWinePrice 1.5
   set stdWinePrice 1
-  ask patches [set varCost 3000 set fixCost 2000]    ; is you sell wine at normal price of 1 can barely cover variable costs of one hectare
+  ask patches [set varCost 2500 set fixCost 2500]    ; is you sell wine at normal price of 1 can barely cover variable costs of one hectare
 ;  set reshapeArea 0                                 ; only if GI board reshapes GI area every 5 years
+  set globalPlantingRights 0
   set ballotBox []                                   ; List will collect ballots for institutinal change
   set countdown everyXyears
   set historyVotes []
-  set collBrandValue 0
+  set colBrandValue 0
   set qualityLev 0
-  set mktExpLev 0
+  set colBrandLev 0
   set giFarmsLev 0
 end
 
@@ -104,18 +103,21 @@ end
 
 to setup-soilQ
   ask patches [set soilQ (random-float 1)]
-  repeat SmoothSoil [ diffuse soilQ 0.5]
+  repeat SmoothSoil [diffuse soilQ 0.5]
 end
 
 to setup-microclimate
-  set GSavgTemp 19
-  let max-elevation max [elevation] of patches
-  ask patches [set microclimate GSavgTemp + 0.0098 * (max-elevation - elevation)]
+  let mean-elev mean [elevation] of patches
+  ask patches
+  [
+    ifelse elevation <= mean-elev
+    [set microclimate GSavgTemp + 0.0098 * (mean-elev - elevation)]
+    [set microclimate GSavgTemp - 0.0098 * (elevation - mean-elev)]
+  ]
 end
 
 to setup-quality
-  set Opt_GSavgTemp OptiTemp
-  ask patches [set wineQ (0.4 * soilQ ) + (0.6 * (1 - (abs((Opt_GSavgTemp - microclimate)/ Opt_GSavgTemp))))]
+  ask patches [set wineQ (0.4 * soilQ ) + (0.6 * (1 - (abs((optGStemp - microclimate)/ optGStemp))))]
 end
 
 to setup-patches
@@ -163,13 +165,13 @@ to setup-farmers
     set myQuality mean [wineQ] of myPlots
     set pastVintages (list)
 ; Capital higher for bigger farms
-    set capital 5000 * (count myPlots)
+    set capital 15000 * (count myPlots)
   ]
 end
 
 to setup-giBoard
   create-giboards 1
-  ask giBoards [set capital 100 * nFarms]
+  ask giBoards [set capital 100 * nFarms move-to one-of patches with-min [wineQ] set color BLACK set shape "star"]
 end
 
 to setup-giArea
@@ -183,7 +185,7 @@ end
 
 
 to setup-landPrice
-  ask patches [set landPrice ((wineQ * 10000) + (giLabel * 5000))]
+  ask patches [set landPrice ((wineQ * 40000) + (giLabel * 10000))]    ; In France 70000 €/ha on average (Champagne excluded).
 end
 
 
@@ -210,17 +212,18 @@ to climateChange
 
 ; INCREASE TEMPERATURE AND UPDATE PATCHES WINE QUALITY
   ask patches [
-    ifelse ClimateScenario = "Paris"
-    [set microclimate microclimate + 0.02
+    if ClimateScenario = "+ 2°C"
+    [set microclimate microclimate + 0.0125
      update-wineQuality]
-    [set microclimate microclimate + 0.035
+    if ClimateScenario = "+ 3°C"
+    [set microclimate microclimate + 0.025
      update-wineQuality]
   ]
   refreshWorld
 end
 
 to update-wineQuality
-  set wineQ ((0.4 * SoilQ) + 0.6 * (1 - (abs((Opt_GSavgTemp - microclimate)/ Opt_GSavgTemp))))
+  set wineQ ((0.4 * SoilQ) + 0.6 * (1 - (abs((optGStemp - microclimate)/ optGStemp))))
 end
 
 ; --------------------------------------------------------------------------
@@ -242,21 +245,23 @@ end
 to heuristic
 
 ; # Reactivate fallow plots that are now suitable (it could happen with high elevation plots)
-;  print "###-NEW VINTAGE!-###"
   let goodFallow  myPlots with [fallow = 1 and wineQ > qualityStandard ]
   ask goodFallow [set fallow 0 set pcolor scale-color violet WineQ (max [wineQ] of patches) (min [wineQ] of patches) ] ; print "LOWQ to HIGHQ!"
 
+; # Set productive plots
   let myProdPlots myPlots with [ageVines > 3 and fallow = 0]
 
-; # If no productive plots (e.g., just planted plots and fallow plots, wait and update capital).
-  if not any? myProdPlots [
-;    print "NO PRODUCTIVE PLOTS!"
+; # If no productive plots (e.g., just planted plots and fallow plots, update capital, pass).
+  if not any? myProdPlots
+  [
+; # PROBLEM HERE?? if they have no productive plots they could just set again fallow plots to production, sell standard wine and stay on 0 profits. But then the "set one plot fallow per year" wouldn't work.
     let totalCost sum [fixCost] of (patch-set myProdPlots myPlots with [ageVines < 3]) + sum [varCost] of myProdPlots
     if capital < totalCost
     [
       set bankruptcies bankruptcies + 1
       ifelse myquality > qualitystandard [print "Dead high"][print "Dead low"]
       type "Bankrupcies: " print bankruptcies
+      set plantingRights plantingRights + count myPlots
       ask myPlots [
         set owner nobody
         set pastOwners insert-item (length pastOwners) pastOwners ([who] of myself)
@@ -267,8 +272,7 @@ to heuristic
       die
     ]
     set profit  (- totalCost)
-;    type "Profit = " print profit
-    set capital (capital + profit)      ; Now they can only sell at GI price from plots with high quality
+    set capital (capital + profit)
 
     ask myPlots [if ageVines < 20 [set ageVines ageVines + 1]]                                           ; Assume that farmers manage vines to keep average age no higher than 20.
     stop
@@ -286,7 +290,7 @@ to heuristic
 ; # Calculation of first expected profit
   let eProfit1 totalRevenue - totalCost
 
-  ifelse myQuality < qualityStandard
+  if myQuality < qualityStandard           ; ###LOOP here?
 
 ; # 1) Quatilty is lower than standard can try to increase profit by letting one plot fallow and sell all GI
   [ ;print "Avg Quality < Quality Std"
@@ -340,18 +344,16 @@ to heuristic
     ]
   ]
 
-  [
-;    print "Avg Quality > Quality Std"
-;    print "ALL GI WINE!"
-  ]
-; # 2) SELL WINE
 
+; # 2) SELL WINE
+  set myProdPlots myPlots with [ageVines > 3 and fallow = 0]
   set totalCost sum [fixCost] of (patch-set myProdPlots myPlots with [ageVines < 3]) + sum [varCost] of myProdPlots
   if capital < totalCost
   [
     set bankruptcies bankruptcies + 1
     ifelse myquality > qualitystandard [print "Dead high"][print "Dead low"]
 ;    type "Bankrupcies: " print bankruptcies
+    set plantingRights plantingRights + count myPlots
     ask myPlots [
       set owner nobody
       set pastOwners insert-item (length pastOwners) pastOwners ([who] of myself)
@@ -367,7 +369,6 @@ to heuristic
   [((giWinePrice * (wineYield * count myProdPlots with [giLabel = 1] )) + (stdWinePrice * (wineYield * count myProdPlots with [giLabel = 0])))]
 
   set profit totalRevenue - totalCost
-  ;type "Profit = " print profit
   set capital (capital + profit)      ; Now they can only sell at GI price from plots with high quality
 
   set pastVintages insert-item (length pastVintages) pastVintages (mean [wineQ] of myProdPlots)        ; Save quality of vintage in farm's memory
@@ -382,14 +383,10 @@ to heuristic
     let meanPV mean (sublist pastVintages 0 4)
     if meanPV > myQuality
     [
-      ;print "MY QUALITY IS DECREASING!"
       sellLowestQplot
       if plantingRights > 0 [buyNewPlot]
     ]
-    if meanPV < myQuality
-    [] ;[ print "MY QUALITY IS INCREASING!"]
   ]
-;  print " "
 end
 
 to sellLowestQplot
@@ -397,8 +394,8 @@ to sellLowestQplot
 ; # In this way the farmers will sell all low elevation plots up to the point in which the lowest plot is the farmstead plot.
   let chosenPlot myPlots with [farmStead = 0 and elevation < mean [elevation] of [myPlots] of myself] with-min [wineQ]
 
-  ifelse any? chosenPlot
-  [ ;print "SOLD A PLOT!"
+  if any? chosenPlot
+  [
     ask chosenPlot
     [
       set owner nobody set pastOwners insert-item (length pastOwners) pastOwners ([who] of myself) set ageVines 0
@@ -410,9 +407,7 @@ to sellLowestQplot
     set capital capital + first [landPrice] of chosenPlot
     set plantingRights plantingRights + 1
   ]
-  [];  [print "NO PLOT TO SELL!"]
-
-;  type "PLANTING RIGHTS: " print plantingRights       ; They could capitalise the plainting rights by selling them to other farms. NOT IMPLEMENTED NOW.
+; They could capitalise the plainting rights by selling them to other farms. NOT IMPLEMENTED NOW.
 end
 
 to buyNewPlot
@@ -428,7 +423,7 @@ to buyNewPlot
 
     if capital >= (first ([landPrice] of interestingPlots with-max [wineQ])) + installCost + fixCost * count myPlots with [ageVines < 3] ; the installation cost is the fix cost of maintaning the new implatented vineyard which is going to be non productive for 3 years.
     [
-;      print "BOUGHT A PLOT!"
+
       let chosenPlot interestingPlots with-max [wineQ]
       ask chosenPlot [set owner [who] of myself                                        ; ATTENTION HERE EACH FARM DOES THIS ONE AFTER THE OTHER, SOMEBODY WILL RANDOMLY BE SELECTED TO MOVE FIRST THEREFORE HAVING MORE PLOTS TO CHOOSE FROM.
                       sprout-fTokens 1
@@ -473,7 +468,7 @@ to reshapeGIarea
 end
 
 to update-landPrices
-  ask patches [ set landPrice ((wineQ * 10000) + (giLabel * 5000)) ]
+  ask patches [set landPrice ((wineQ * 40000) + (giLabel * 10000))]
 end
 
 to collectFees
@@ -489,9 +484,9 @@ to investMarketing
   ask giBoards
   [
     set capital capital + giFees
-    let prevValue collBrandValue
-    set collBrandValue (collBrandValue + (mktDelta * giFees) - (mktRho * collBrandValue))
-    set capital capital - (mktDelta * giFees)
+    let prevValue colBrandValue
+    set colBrandValue (colBrandValue + (delta * giFees) - (rho * colBrandValue))
+    set capital capital - (delta * giFees)
     set giFees 0
   ]
 end
@@ -499,7 +494,7 @@ end
 to qualityControl
   ask giBoards
   [
-  set capital capital - ((1 - mktDelta) * giFees)   ; Suppose they make no profit, all is spent in quality controlls and all the rest invested in Marketing / collective brand value
+  set capital capital - ((1 - delta) * giFees)   ; Suppose they make no profit, all is spent in quality controlls and all the rest invested in Marketing / collective brand value
   ]
 end
 
@@ -534,22 +529,22 @@ to update-giPrestige
 ; # Marketing Investment LEVELS
 ; # Level 1
 
-  set mktExpLev 0
+  set colBrandLev 0
 
-  if collBrandValue >= basBrandValue and collBrandValue < 2 * basBrandValue
-  [set mktExpLev 1]
+  if colBrandValue >= basBrandValue and colBrandValue < 2 * basBrandValue
+  [set colBrandLev 1]
 
 ; # Level 2
-  if collBrandValue >= 2 * basBrandValue and collBrandValue < 3 * basBrandValue
-  [set mktExpLev 2]
+  if colBrandValue >= 2 * basBrandValue and colBrandValue < 3 * basBrandValue
+  [set colBrandLev 2]
 
 ; # Level 3
-  if collBrandValue >= 3 * basBrandValue and collBrandValue < 4 * basBrandValue
-  [set mktExpLev 3]
+  if colBrandValue >= 3 * basBrandValue and colBrandValue < 4 * basBrandValue
+  [set colBrandLev 3]
 
 ; # Level 4
-  if collBrandValue >= 4 * basBrandValue
-  [set mktExpLev 4]
+  if colBrandValue >= 4 * basBrandValue
+  [set colBrandLev 4]
 
 
 ; # GI Farms LEVELS
@@ -575,7 +570,7 @@ to update-giPrestige
 
 ; ##########################
 
-  set giPrestige round mean (list qualityLev mktExpLev giFarmsLev)
+  set giPrestige round mean (list qualityLev colBrandLev giFarmsLev)
 
 end
 
@@ -773,13 +768,13 @@ ticks
 SLIDER
 632
 72
-747
+724
 105
 SmoothElev
 SmoothElev
 0
 10
-6.0
+5.0
 1
 1
 NIL
@@ -803,10 +798,10 @@ NIL
 1
 
 MONITOR
-633
+632
+110
+693
 155
-694
-200
 mean elev
 precision mean [elevation] of patches 2
 17
@@ -814,10 +809,10 @@ precision mean [elevation] of patches 2
 11
 
 MONITOR
-698
+697
+110
+752
 155
-753
-200
 max elev
 precision max [elevation] of patches 2
 17
@@ -825,10 +820,10 @@ precision max [elevation] of patches 2
 11
 
 MONITOR
-757
+756
+110
+808
 155
-809
-200
 min elev
 precision min [elevation] of patches 2
 17
@@ -837,9 +832,9 @@ precision min [elevation] of patches 2
 
 MONITOR
 633
-211
+232
 692
-256
+277
 mean clim
 precision mean [microclimate] of patches 2
 17
@@ -848,9 +843,9 @@ precision mean [microclimate] of patches 2
 
 MONITOR
 698
-212
+233
 757
-257
+278
 max clim
 precision max [microclimate] of patches 2
 17
@@ -859,31 +854,20 @@ precision max [microclimate] of patches 2
 
 MONITOR
 758
-212
+233
 809
-257
+278
 min clim
 precision min [microclimate] of patches 2
 17
 1
 11
 
-MONITOR
-633
-262
-707
-307
-WineQ mean
-precision mean [wineQ] of patches 2
-17
-1
-11
-
 SLIDER
-632
-113
-747
-146
+725
+72
+817
+105
 SmoothSoil
 SmoothSoil
 0
@@ -895,32 +879,10 @@ NIL
 HORIZONTAL
 
 MONITOR
-709
-262
-759
-307
-max
-precision max [wineQ] of patches 2
-17
-1
-11
-
-MONITOR
-760
-262
-810
-307
-min
-precision min [wineQ] of patches 2
-17
-1
-11
-
-MONITOR
 633
-314
+286
 711
-359
+331
 Quality STD
 precision qualityStandard 3
 17
@@ -928,19 +890,19 @@ precision qualityStandard 3
 11
 
 CHOOSER
-859
+849
 10
-997
+987
 55
 ClimateScenario
 ClimateScenario
-"Paris" "BAU"
+"+ 2°C" "+ 3°C"
 0
 
 BUTTON
-1014
+1004
 14
-1080
+1070
 47
 GO 50
 repeat 50\n[\ngo\n]
@@ -965,20 +927,20 @@ Map shows quality (dark = high)\nGI area: patches with lable \"1\"
 1
 
 SWITCH
-860
+850
 119
-956
+946
 152
 inRadius?
 inRadius?
-1
+0
 1
 -1000
 
 SLIDER
-958
+948
 119
-1050
+1040
 152
 radius
 radius
@@ -1001,9 +963,9 @@ PATCHES SETUP
 1
 
 TEXTBOX
-860
+850
 60
-966
+956
 79
 FARMS HEURISTICS
 11
@@ -1011,9 +973,9 @@ FARMS HEURISTICS
 1
 
 BUTTON
-1088
+1078
 15
-1167
+1157
 48
 GO once
 go
@@ -1029,9 +991,9 @@ NIL
 
 MONITOR
 716
-314
+286
 796
-359
+331
 GI AREA
 (count patches with [giLabel = 1])/(count patches)
 17
@@ -1039,9 +1001,9 @@ GI AREA
 11
 
 MONITOR
-859
+849
 156
-914
+904
 201
 Farms
 count farms
@@ -1050,9 +1012,9 @@ count farms
 11
 
 MONITOR
-1011
+1001
 206
-1087
+1077
 251
 Mean Capital
 precision mean [capital] of farms 2
@@ -1061,9 +1023,9 @@ precision mean [capital] of farms 2
 11
 
 MONITOR
-915
+905
 156
-976
+966
 201
 Mean Size
 precision mean [count myPlots] of farms 2
@@ -1072,9 +1034,9 @@ precision mean [count myPlots] of farms 2
 11
 
 TEXTBOX
-860
+850
 76
-1171
+1161
 117
 TWO WIDELY DIFFERENT SCENARIOS HERE: \nif you allow farmers to buy new patches from in a certain radius around the farmsted or only in the neighbourhood of its own plots. 
 10
@@ -1082,10 +1044,10 @@ TWO WIDELY DIFFERENT SCENARIOS HERE: \nif you allow farmers to buy new patches f
 1
 
 PLOT
-633
-373
-793
-493
+632
+344
+812
+464
 GI AREA
 TIME
 N
@@ -1100,9 +1062,9 @@ PENS
 "default" 1.0 0 -7858858 true "" "plot count patches with [giLabel = 1]"
 
 PLOT
-860
+850
 254
-1020
+1010
 374
 Farms
 TIME
@@ -1118,9 +1080,9 @@ PENS
 "default" 1.0 0 -13345367 true "" "plot count farms"
 
 PLOT
-1021
+1011
 254
-1181
+1171
 374
 Mean Capital
 TIME
@@ -1136,10 +1098,10 @@ PENS
 "default" 1.0 0 -9276814 true "" "plot precision mean [capital] of farms 2"
 
 PLOT
-633
-496
-793
-616
+632
+467
+814
+587
 Mean Quality
 TIME
 Quality
@@ -1154,9 +1116,9 @@ PENS
 "default" 1.0 0 -955883 true "" "plot precision mean [wineQ] of patches 2"
 
 MONITOR
-1044
+1034
 156
-1145
+1135
 201
 LowQuality Farms
 count farms with [myquality < qualitystandard]
@@ -1165,10 +1127,10 @@ count farms with [myquality < qualitystandard]
 11
 
 MONITOR
-1090
-206
-1147
-251
+1136
+156
+1193
+201
 Bankrupt
 bankruptcies
 17
@@ -1176,9 +1138,9 @@ bankruptcies
 11
 
 MONITOR
-860
+850
 206
-940
+930
 251
 Total Output
 (wineYield * count patches with [ageVines > 3 and fallow = 0])
@@ -1187,9 +1149,9 @@ Total Output
 11
 
 PLOT
-857
+847
 494
-1050
+1040
 629
 Ballot
 Vote
@@ -1205,16 +1167,16 @@ PENS
 "default" 1.0 1 -16777216 true "" "histogram ballotBox"
 
 OUTPUT
-1068
+1058
 522
-1246
+1236
 627
 14
 
 CHOOSER
-1057
+1047
 452
-1234
+1224
 497
 votingMechanism
 votingMechanism
@@ -1222,9 +1184,9 @@ votingMechanism
 1
 
 TEXTBOX
-1065
+1055
 504
-1267
+1257
 523
 Outcome Collective Choice Situation
 12
@@ -1232,10 +1194,10 @@ Outcome Collective Choice Situation
 1
 
 SLIDER
-860
+850
 416
-953
-450
+943
+449
 memory
 memory
 3
@@ -1247,13 +1209,13 @@ NIL
 HORIZONTAL
 
 SLIDER
-860
+850
 454
-1032
+1036
 487
 everyXyears
 everyXyears
-3
+1
 10
 5.0
 1
@@ -1262,9 +1224,9 @@ NIL
 HORIZONTAL
 
 TEXTBOX
-862
+852
 391
-1024
+1014
 410
 INSTITUTIONAL CHANGE
 11
@@ -1272,10 +1234,10 @@ INSTITUTIONAL CHANGE
 1
 
 SLIDER
-1057
+1047
 414
-1159
-448
+1149
+447
 qualityDelta
 qualityDelta
 0
@@ -1287,30 +1249,30 @@ NIL
 HORIZONTAL
 
 INPUTBOX
-754
-82
-815
-142
-OptiTemp
-21.0
+634
+164
+701
+224
+optGStemp
+17.0
 1
 0
 Number
 
 TEXTBOX
-1295
-381
-1361
-399
+1282
+383
+1348
+401
 GI BOARD
 11
 0.0
 1
 
 TEXTBOX
-880
+870
 517
-939
+929
 535
 Decreasing
 10
@@ -1318,9 +1280,9 @@ Decreasing
 1
 
 TEXTBOX
-993
+983
 517
-1048
+1038
 535
 Increasing
 10
@@ -1328,9 +1290,9 @@ Increasing
 1
 
 INPUTBOX
-1292
+1282
 409
-1342
+1332
 469
 %fee
 0.05
@@ -1339,31 +1301,31 @@ INPUTBOX
 Number
 
 INPUTBOX
-1346
+1336
 409
-1398
+1388
 469
-mktDelta
-0.6
+delta
+0.5
 1
 0
 Number
 
 INPUTBOX
-1400
+1390
 409
-1452
+1442
 469
-mktRho
-0.2
+rho
+0.5
 1
 0
 Number
 
 MONITOR
-941
+931
 206
-1010
+1000
 251
 GI Output
 wineYield * count patches with [ageVines > 3 and fallow = 0 and giLabel = 1]
@@ -1372,9 +1334,9 @@ wineYield * count patches with [ageVines > 3 and fallow = 0 and giLabel = 1]
 11
 
 MONITOR
-979
+969
 156
-1042
+1032
 201
 GI Farms
 count farms with [any? myPlots with [ageVines > 3 and giLabel = 1]]
@@ -1383,10 +1345,10 @@ count farms with [any? myPlots with [ageVines > 3 and giLabel = 1]]
 11
 
 MONITOR
-1292
+1282
 599
-1360
-645
+1350
+644
 GI Prestige
 giPrestige
 17
@@ -1394,9 +1356,9 @@ giPrestige
 11
 
 MONITOR
-1150
-205
-1211
+1078
+206
+1139
 251
 Profits
 sum [profit] of farms
@@ -1405,10 +1367,10 @@ sum [profit] of farms
 11
 
 MONITOR
-1371
+1361
 599
-1432
-645
+1422
+644
 NIL
 qualityLev
 17
@@ -1416,21 +1378,21 @@ qualityLev
 11
 
 MONITOR
-1434
+1423
 599
-1500
-645
+1493
+644
 NIL
-mktExpLev
+colBrandLev
 17
 1
 11
 
 MONITOR
-1501
+1495
 599
-1571
-645
+1565
+644
 NIL
 giFarmsLev
 17
@@ -1438,21 +1400,21 @@ giFarmsLev
 11
 
 INPUTBOX
-1455
+1445
 409
-1541
+1531
 469
 basBrandValue
-100000.0
+30000.0
 1
 0
 Number
 
 SLIDER
-953
+943
 416
-1046
-450
+1036
+449
 prec
 prec
 1
@@ -1464,9 +1426,9 @@ NIL
 HORIZONTAL
 
 PLOT
-1183
+1173
 254
-1343
+1333
 374
 Total Profits
 TIME
@@ -1482,9 +1444,9 @@ PENS
 "default" 1.0 0 -15040220 true "" "plot sum [profit] of farms"
 
 PLOT
-1291
+1281
 473
-1485
+1475
 593
 Collective Brand Value
 TIME
@@ -1497,12 +1459,12 @@ true
 false
 "" ""
 PENS
-"default" 1.0 0 -16777216 true "" "plot collBrandValue"
+"default" 1.0 0 -16777216 true "" "plot colBrandValue"
 
 PLOT
-1488
+1478
 473
-1648
+1638
 593
 GI Wine Price
 TIME
@@ -1516,6 +1478,17 @@ false
 "" ""
 PENS
 "default" 1.0 0 -16777216 true "" "plot giWinePrice"
+
+INPUTBOX
+704
+164
+780
+224
+GSavgTemp
+17.0
+1
+0
+Number
 
 @#$#@#$#@
 ## WHAT IS IT?
