@@ -1,3 +1,6 @@
+[Model version 0.6]
+Key model features can also be explored in the "Simplified" version of the model which can run without extesions on NetLogo Web app (https://www.netlogoweb.org/launch)
+
 HOW TO MAKE IT WORK:
 
 
@@ -8,7 +11,8 @@ Follow the steps below to set your environment.
 
 1) Install R https://cran.r-project.org/ (IF MISSING)
 
-2) Open R and install the rJava package (run command:  install.packages(rJava))
+2) Open R and install the rJava package (run command:  install.packages(rJava)) 
+   install also the package raster (run command: install.packages(raster)) you need this for the functions applied in NetLogo.
 
 3) Run the following lines: 
 
