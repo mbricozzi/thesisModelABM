@@ -72,4 +72,4 @@ Copy paste here the file "user.properties" (or sobstitute it if already existing
 
 #################################################################
 
-Remember to change paths in the code in order to make it work. (I need to figure out how to set them in order to make it work "outofthebox")
+Remember to change paths for the R.script in the NetLogo code in order to make it work.
