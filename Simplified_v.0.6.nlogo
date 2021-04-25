@@ -126,7 +126,7 @@ resize-world 0 49 0 49
   let maxquality (max [wineQ] of patches)
 
   ask patches [
-    set pcolor scale-color violet WineQ maxquality minquality
+    set pcolor scale-color violet wineQ maxquality minquality
     set owner nobody
     set pastOwners []
   ]
@@ -254,7 +254,7 @@ to heuristic
   if not any? myProdPlots
   [
 
-    let totalCost sum [fixCost] of myPlots + sum [varCost] of myProdPlots
+    let totalCost sum [fixCost] of myPlots
 
     if capital < totalCost
 ;   # Bankruptcy EXIT -------------------------------------------------------------------------
@@ -781,7 +781,7 @@ to refreshworld
   let minquality (min [wineQ] of patches)
   let maxquality (max [wineQ] of patches)
 
-  ask patches with [fallow = 0] [set pcolor scale-color violet WineQ maxquality minquality]
+  ask patches with [fallow = 0] [set pcolor scale-color violet wineQ maxquality minquality]
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -820,7 +820,7 @@ SmoothElev
 SmoothElev
 0
 10
-5.0
+6.0
 1
 1
 NIL

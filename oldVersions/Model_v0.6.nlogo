@@ -343,7 +343,7 @@ to setup-farmers
     set myPlots patches with [owner = myself]
     set myQuality mean [wineQ] of myPlots
     set pastVintages []
-    set capital 15000 * (count myPlots)  ; Two years full total cost cover at 25% slope
+    set capital 3 * (sum [fixCost] of myPlots + sum [varCost] of myplots)  ; they can cover 3 years total costs of their plots
   ]
 
 
@@ -354,12 +354,11 @@ end
 
 to setup-giBoard
   ask one-of patches with [not any? turtles-here] [sprout-giBoards 1]
-  ask giBoards [set capital 100 * nFarms move-to one-of patches with-min [wineQ] set color BLACK set shape "star"]
+  ask giBoards [move-to one-of patches with-min [wineQ] set color BLACK set shape "star"]
 end
 
 to setup-giArea
-  set qualityStandard mean [wineQ] of patches with [any? fTokens-here]  ; Quality standard as average of all farms quality
-;  set qualityStandard 0.8
+  set qualityStandard min [myQuality] of farms  ; All farms can initially fullfill the quality standard
 ; GI AREA DEFINED with QUALITY STANDARD
   let giPatches patches with [wineQ >= qualityStandard]
   ask giPatches [set giLabel 1 set plabel-color black set plabel "GI"]
@@ -424,6 +423,7 @@ to farmHeuristic
   [
     heuristic
   ]
+;  expandFarms
 end
 
 
@@ -432,7 +432,7 @@ to heuristic
 ; # Reactivate fallow plots that are now suitable (it could happen with high elevation plots and with institutional change)
 
   let goodFallow  myPlots with [fallow = 1 and wineQ > qualityStandard ]
-  ask goodFallow [set fallow 0 set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (max [wineQ] of patches) (min [wineQ] of patches)]
+  ask goodFallow [set fallow 0 set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (min [wineQ] of patches) (max [wineQ] of patches)]
 
   let myProdPlots myPlots with [ageVines > 3 and fallow = 0]
 
@@ -452,7 +452,7 @@ to heuristic
         set ageVines 0
         set pastOwners insert-item (length pastOwners) pastOwners ([who] of myself)
         ask fTokens-on self [die]
-        set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (max [wineQ] of patches) (min [wineQ] of patches)
+        set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (min [wineQ] of patches) (max [wineQ] of patches)
       ]
       set globalPlantingRights globalPlantingRights + plantingRights
       die
@@ -512,11 +512,11 @@ to heuristic
         ifelse any?  myProdPlots with [giLabel = 1]
         [
           let stillProfPlots myPlots with [fallow = 1 and (fixCost + varCost) <= wineYield * stdWinePrice]    ; REACTIVATE low quality plot still profitable at standard wine price
-          ask stillProfPlots [set fallow 0 set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (max [wineQ] of patches) (min [wineQ] of patches)]
+          ask stillProfPlots [set fallow 0 set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (min [wineQ] of patches) (max [wineQ] of patches)]
         ]
         [
           let stillProfPlots myPlots with [fallow = 1 and (fixCost + varCost) <= wineYield * stdWinePrice]    ; REACTIVATE low quality plot still profitable at standard wine price
-          ask stillProfPlots [set fallow 0 set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (max [wineQ] of patches) (min [wineQ] of patches)]
+          ask stillProfPlots [set fallow 0 set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (min [wineQ] of patches) (max [wineQ] of patches)]
         ]
       ]
     ]
@@ -542,7 +542,7 @@ to heuristic
             set ageVines 0
             set pastOwners insert-item (length pastOwners) pastOwners ([who] of myself)
             ask fTokens-on self [die]
-            set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (max [wineQ] of patches) (min [wineQ] of patches)
+            set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (min [wineQ] of patches) (max [wineQ] of patches)
           ]
           set globalPlantingRights globalPlantingRights + plantingRights
           die
@@ -558,11 +558,11 @@ to heuristic
         ifelse any?  myProdPlots with [giLabel = 1]
         [
           let stillProfPlots myPlots with [fallow = 1 and (fixCost + varCost) <= wineYield * stdWinePrice]    ; REACTIVATE low quality plot still profitable at standard wine price
-          ask stillProfPlots [set fallow 0 set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (max [wineQ] of patches) (min [wineQ] of patches)]
+          ask stillProfPlots [set fallow 0 set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (min [wineQ] of patches) (max [wineQ] of patches)]
         ]
         [
           let stillProfPlots myPlots with [fallow = 1 and (fixCost + varCost) <= wineYield * stdWinePrice]   ; REACTIVATE low quality plot still profitable at standard wine price
-          ask stillProfPlots [set fallow 0 set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (max [wineQ] of patches) (min [wineQ] of patches)]
+          ask stillProfPlots [set fallow 0 set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (min [wineQ] of patches) (max [wineQ] of patches)]
         ]
       ]
     ]
@@ -590,7 +590,7 @@ end
       set ageVines 0
       set pastOwners insert-item (length pastOwners) pastOwners ([who] of myself)
       ask fTokens-on self [die]
-      set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (max [wineQ] of patches) (min [wineQ] of patches)
+      set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (min [wineQ] of patches) (max [wineQ] of patches)
     ]
     set globalPlantingRights globalPlantingRights + plantingRights
     die
@@ -616,9 +616,9 @@ end
   if length pastVintages > 3
   [
     let meanPV mean (sublist pastVintages 0 4)
-    if meanPV > myQuality
+    if precision meanPV prec > precision myQuality prec      ; NOW PRECISION IS INSERED ALSO HERE.
     [
-      sellLowestQplot
+      sellLowestQplot                                        ; CHANGE SELL PLOT ONLY IF THERE IS ONE with HIGHER QUALITY AROUND
       if plantingRights > 0 [buyNewPlot]
     ]
   ]
@@ -636,7 +636,7 @@ to sellLowestQplot
     ask chosenPlot
     [
       set owner nobody set pastOwners insert-item (length pastOwners) pastOwners ([who] of myself) set ageVines 0
-      set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (max [wineQ] of patches) (min [wineQ] of patches)
+      set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ (min [wineQ] of patches) (max [wineQ] of patches)
     ]
     ask fTokens-on chosenPlot [die]
 
@@ -674,6 +674,36 @@ to buyNewPlot
   ]
 end
 
+
+to expandFarms    ; what about price of planting rights?
+  let vineAllowedExp (floor ((count patches with [any? ftokens-here]) * 0.01))
+  let topFarms (max-n-of  vineAllowedExp farms [capital])
+  ask topFarms
+  [
+
+  let interestingPlots ifelse-value inRadius?
+  [patch-set (patches in-radius radius with [wineQ > qualityStandard and owner = nobody and (member? [who] of myself pastOwners) = false ])]   ; they know a minimum about the elevation trick!
+  [patch-set ([neighbors] of myPlots with [wineQ > qualityStandard and owner = nobody and (member? [who] of myself pastOwners) = false and elevation > mean [elevation] of [myPlots] of myself])]      ; [neighbors] of myPlots or patches in-radius x? include distance from farmstead in cost calculation
+
+  if any? interestingPlots
+  [
+    let installCost 3 * fixCost ; the installation cost is the fix cost of maintaning the new vineyard which is unproductive for 3 years (only generating fixed costs of maintenence).
+
+    if capital >= (first ([landPrice] of interestingPlots with-max [wineQ])) + installCost + installCost * count myPlots with [ageVines < 3]  ; ATTENTION CHECK THIS: It buys only if good financial situation which allows to maintain all unproductive plots.
+      [
+        let chosenPlot interestingPlots with-max [wineQ]
+        ask chosenPlot [set owner [who] of myself                                        ; ONE FARM AT THE TIME (as for the whole heuristic): SOMEBODY WILL RANDOMLY BE SELECTED TO MOVE FIRST THEREFORE HAVING MORE PLOTS TO CHOOSE FROM.
+                        sprout-fTokens 1
+                        set ageVines 0]
+        ask fTokens-on chosenPlot [set color [color] of myself]
+        set myPlots (patch-set myPlots chosenPlot)
+        set capital capital - first [landPrice] of chosenPlot
+        set plantingRights plantingRights - 1
+      ]
+    ]
+  ]
+
+end
 ;------------------------------------------------------------------------------
 
 
@@ -752,7 +782,7 @@ to update-giPrestige
 ; # Level 1
   set qualityLev 0
 
-  if  giprodQuality >= 0.5 and giprodQuality < 0.7
+  if  giprodQuality >= 0.6 and giprodQuality < 0.7
   [set qualityLev 1]
 
 ; # Level 2
@@ -831,8 +861,12 @@ end
 ;------------------------------------------------------------------------------
 
 to collectiveChoiceArena
-  if votingMechanism != "NO VOTE" [institutionalChange]
-  if ticks = 49 or ticks = 99 [type "VOTING HISTORY :" print historyVotes]
+  if votingMechanism != "NO VOTE"
+  [
+    institutionalChange
+    if ticks = 49 or ticks = 99 [type "VOTING HISTORY :" print historyVotes]
+  ]
+
 end
 
 to institutionalChange
@@ -1075,7 +1109,7 @@ CHOOSER
 ClimateScenario
 ClimateScenario
 "+ 2°C" "+ 3°C"
-0
+1
 
 MONITOR
 785
@@ -1329,7 +1363,7 @@ NIL
 10.0
 0.0
 500.0
-true
+false
 false
 "set-histogram-num-bars 10\nset-plot-x-range min [capital] of farms max [capital] of farms \n " "set-histogram-num-bars 10\nset-plot-x-range min [capital] of farms max [capital] of farms "
 PENS
@@ -1428,7 +1462,7 @@ INPUTBOX
 679
 269
 sigma_Kernel
-1.5
+3.0
 1
 0
 Number
@@ -1542,10 +1576,10 @@ INSTITUTIONAL CHANGE
 1
 
 SLIDER
-1339
-516
-1439
-549
+1340
+515
+1432
+548
 everyXyears
 everyXyears
 1
@@ -1557,10 +1591,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-1339
-481
-1439
-514
+1340
+480
+1432
+513
 memory
 memory
 3
@@ -1572,10 +1606,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-1439
-481
-1539
-514
+1435
+480
+1540
+513
 prec
 prec
 1
@@ -1587,16 +1621,16 @@ NIL
 HORIZONTAL
 
 SLIDER
-1439
-516
-1539
-549
+1435
+515
+1540
+548
 qualityDelta
 qualityDelta
 0
 0.5
 0.01
-0.01
+0.005
 1
 NIL
 HORIZONTAL
@@ -1613,9 +1647,9 @@ votingMechanism
 
 PLOT
 1337
-561
+563
 1537
-711
+713
 Ballots
 Vote
 Count
@@ -1683,7 +1717,7 @@ INPUTBOX
 1431
 169
 delta
-0.6
+0.5
 1
 0
 Number
@@ -1694,7 +1728,7 @@ INPUTBOX
 1497
 169
 rho
-0.5
+0.25
 1
 0
 Number
@@ -1705,7 +1739,7 @@ INPUTBOX
 1593
 169
 basBrandValue
-200000.0
+500000.0
 1
 0
 Number
@@ -1723,7 +1757,7 @@ GI BOARD
 PLOT
 1310
 185
-1510
+1595
 335
 Collective Brand Value
 TIME
@@ -1733,15 +1767,16 @@ EURO
 0.0
 10.0
 true
-false
+true
 "" ""
 PENS
-"default" 1.0 0 -16777216 true "" "plot colBrandValue"
+"Brand Equity" 1.0 0 -15390905 true "" "plot colBrandValue"
+"Mkt Exp (t)" 1.0 0 -11033397 true "" "plot delta * (%fee * sum [profit] of farms)"
 
 PLOT
-1514
+1595
 185
-1714
+1755
 335
 GI Wine Price
 EURO
@@ -1749,7 +1784,7 @@ TIME
 0.0
 50.0
 0.0
-4.0
+3.0
 true
 false
 "" ""
@@ -1806,7 +1841,7 @@ MONITOR
 1129
 268
 TOT Output
-(wineYield * count patches with [ageVines > 3 and fallow = 0])
+wineYield * sum [count myPlots with [ageVines > 3 and fallow = 0]] of farms
 2
 1
 11
@@ -1817,7 +1852,7 @@ MONITOR
 1197
 268
 GI Output
-wineYield * count patches with [ageVines > 3 and fallow = 0 and giLabel = 1]
+wineYield * sum [count myPlots with [ageVines > 3 and fallow = 0]] of farms with [myQuality > qualityStandard] + wineYield * sum [count myPlots with [giLabel = 1 and ageVines > 3 and fallow = 0]] of farms with [myQuality < qualityStandard]
 2
 1
 11
@@ -1870,7 +1905,7 @@ true
 "" ""
 PENS
 "AVG Capital" 1.0 0 -16777216 true "" "plot mean [capital] of farms"
-"TOT Profits" 1.0 0 -955883 true "" "plot sum [profit] of farms"
+"TOT Profit" 1.0 0 -955883 true "" "plot sum [profit] of farms"
 
 PLOT
 785
@@ -1908,6 +1943,7 @@ true
 PENS
 "GI Farms" 1.0 0 -13345367 true "" "plot ifelse-value any? patches with [ageVines > 3 and giLabel = 1] [precision mean [wineQ] of patches with [ageVines > 3 and giLabel = 1] 2] [0]"
 "Standard" 1.0 0 -2674135 true "" "plot qualityStandard"
+"ALL Farms" 1.0 0 -16777216 true "" "plot mean [myQuality] of farms"
 
 MONITOR
 610
@@ -1926,16 +1962,16 @@ MONITOR
 730
 470
 wineQ
-precision standard-deviation [soilQ] of patches 3
+precision standard-deviation [wineQ] of patches 3
 17
 1
 11
 
 TEXTBOX
 625
-275
-655
-293
+276
+658
+295
 MEAN
 11
 0.0
@@ -1944,21 +1980,21 @@ MEAN
 TEXTBOX
 675
 275
-720
-293
+725
+294
 Std. DEV
 11
 0.0
 1
 
 TEXTBOX
-530
-580
-600
-611
+15
+578
+85
+618
 |__1 KM___|
 11
-0.0
+9.9
 1
 
 BUTTON
