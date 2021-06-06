@@ -26,16 +26,18 @@ globals
 
   farmExits             ; Count farm exits
   totalFallow           ; Count total plots left fallow
-  landUse               ; List abandoned and aquired plots
+  landUse               ; List abandoned (0) and aquired plots (1)
   landIndex             ; Ratio acquired/abandoned plots
-  globalPlantingRights  ; Collects planting rights when farms exit
-  plantingRightsPrice   ; Fixed price of one Planting right
+  abPlotsEX             ; Count abandoned plots due to farm exit
+  abPlotsUNP            ; Count abandoned plots due to unprofitability
+  abPlotsSUB            ; Count abandoned plots due to substitution
+  acqPlotsSUB           ; Count acquired  plots due to substitution
 
   colBrandValue         ; The stock variable of the intangible capital in which the GI board invests each year
-  qualityLev
-  colBrandLev
-  giFarmsLev
-  giPrestige            ; A 0 - 4 scale integer affecting GI wine price (average of quality, colBrand and Farms levels).
+  qualityLev            ; A 0 - 4 scale integer variable indicating the level of wine quality of the GI farms
+  colBrandLev           ; A 0 - 4 scale integer variable indicating the level of collective brand value
+  giFarmsLev            ; A 0 - 4 scale integer variable indicating the level of the percentage share of GI farms over the total number of farms.
+  giPrestige            ; A 0 - 4 scale integer affecting GI wine price (average of quality, colBrand and Farms levels)
 
   countdown             ; Used
   ballotBox             ; in the
@@ -124,9 +126,10 @@ to initiate-globals
     set fixCost 2500
   ]
   set landUse []
-  set totalFallow 0
-  set globalPlantingRights 0                          ; Collect farms' planting rights when they exit the market (i.e., when they "die")
-  set plantingRightsPrice 50000
+  set abPlotsSUB 1                                    ; Just counts plots abandoned for substitution (for model debug/validation)
+  set acqPlotsSUB 1                                   ; Just counts plots acquired for substitution  (for model debug/validation)
+  set totalFallow 0                                   ; Just counts total plots fallowed
+
   set ballotBox []                                    ; List will collect ballots for institutinal change
   set countdown everyXyears                           ; Timing for initiation of the institutional change process
   set historyVotes []                                 ; Returns history of institutional change outcomes
@@ -495,6 +498,10 @@ end
   [
     set farmExits farmExits + 1
     set plantingRights count myPlots
+
+    repeat count myPlots [set landUse insert-item (length landUse) landUse 0] ; insert n plots in abandoned land
+    set abPlotsEX abPlotsEX + count myPlots
+
     ask myPlots [
       set owner nobody
       set fallow 0
@@ -503,7 +510,6 @@ end
       ask fTokens-on self [die]
       set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ minQuality maxQuality
     ]
-    set globalPlantingRights globalPlantingRights + plantingRights
     die
   ]
 ; # Calculate final profit and and update capital
@@ -529,6 +535,11 @@ to exit-updateCapital
   [
     set farmExits farmExits + 1
     set plantingRights count myPlots
+
+    repeat count myPlots [set landUse insert-item (length landUse) landUse 0] ; insert n plots in abandoned land
+    set abPlotsEX abPlotsEX + count myPlots
+
+    set landUse insert-item (length landUse) landUse 0
     ask myPlots [
       set owner nobody
       set fallow 0
@@ -537,7 +548,6 @@ to exit-updateCapital
       ask fTokens-on self [die]
       set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ minQuality maxQuality
     ]
-    set globalPlantingRights globalPlantingRights + plantingRights
     die
   ]
 ; #  ---------------------------------------------------------------------------------------
@@ -561,7 +571,7 @@ to landAdaptation
   if length pastVintages >= memory
   [
     let meanPV mean (sublist pastVintages (ticks - memory + 1) (ticks + 1))
-    if precision meanPV prec > precision myQuality prec      ; NOW PRECISION IS INSERED ALSO HERE.
+    if precision meanPV prec > precision myQuality prec        ; NOW PRECISION IS INSERED ALSO HERE.
     [
  ;  # Only if there are interesting plots to buy makes sense to sell plots.
       let interestingPlots patches in-radius radius with [wineQ > qualityStandard and owner = nobody and (member? [who] of myself pastOwners) = false and prof > 0] with-max [prof]   ; They know if a plot is profitable, thus they avoid the slopy plots
@@ -583,7 +593,7 @@ to sellLowestQplot
 ; # In this way the farmers will sell all low elevation plots up to the point in which the lowest plot is the farmstead plot.
   let chosenPlot myPlots with [farmStead = 0 and elevation < mean [elevation] of [myPlots] of myself] with-min [wineQ]
 
-  ifelse any? chosenPlot
+  if any? chosenPlot
   [
     ask chosenPlot
     [
@@ -598,8 +608,9 @@ to sellLowestQplot
     set capital capital + first [landPrice] of chosenPlot
     set plantingRights plantingRights + 1
     set landUse insert-item (length landUse) landUse 0
+
+    set abPlotsSUB abPlotsSUB + 1
   ]
-  []
 end
 
 
@@ -626,6 +637,8 @@ to buyNewPlot
       set capital capital - first [landPrice] of chosenPlot
       set plantingRights plantingRights - 1
       set landUse insert-item (length landUse) landUse 1
+
+      set acqPlotsSUB acqPlotsSUB + 1
     ]
   ]
 end
@@ -650,8 +663,10 @@ to abandonFarming
           ask fTokens-on self [die]
           set pcolor palette:scale-scheme "Sequential" "RdPu" 8 WineQ minQuality maxQuality
         ]
-        set globalPlantingRights globalPlantingRights + plantingRights
         set landUse insert-item (length landUse) landUse 0
+
+        set abPlotsUNP abPlotsUNP + 1
+
         die
       ]
 
@@ -671,6 +686,8 @@ to abandonFarming
       set capital capital + [landPrice] of chosenPlot
       set plantingRights plantingRights + 1
       set landUse insert-item (length landUse) landUse 0
+
+      set abPlotsUNP abPlotsUNP + 1
     ]
   ]
 end
@@ -980,9 +997,27 @@ to institutionalChange
 
 end
 
+;
+; -------------------------------------------------------------------------------------------------------------------------------------
+;
+
+
+;# Nice ways to check frequencies in lists' items
+; ------------------------------------------------------------
 to-report frequency [an-item a-list]
     report length (filter [ i -> i = an-item] a-list)
 end
+
+to-report occurrences [x the-list]
+  report reduce
+    [ [occurrence-count next-item] -> ifelse-value (next-item = x) [occurrence-count + 1] [occurrence-count] ] (fput 0 the-list)
+end
+
+; ------------------------------------------------------------
+
+
+;# Calculate some statistics for analysis
+; ------------------------------------------------------------
 
 to calc-someStats
 
@@ -992,16 +1027,21 @@ to calc-someStats
 
 
 ; # LAND INDEX
-  set landIndex sort-by > landuse
-  if length landIndex > 1
+  set landUse sort-by > landUse    ; Sort from 1 to 0  (1 = acquired, 0 = abandoned)
+  ifelse length landUse > 1
   [
-    set landIndex ifelse-value item 1 landIndex = 0 [0] [reduce / map [ i -> frequency i landuse] (range 0 2)]
+    set landIndex ifelse-value item 0 landUse = 0 [0] [reduce / map [ i -> frequency i landuse] (range 0 2)]   ; If the first item is a 0 means that no plot was aquired, it would divide e by 0, so we attribute 0 in that case.
   ]
+  [
+    set landIndex 0 ; if there are no aquired/abandoned plots
+  ]
+
 end
+; ------------------------------------------------------------
 
 
 ;# GRAPHIC STUFF
-;-----------------------------------------
+; -----------------------------------------
 
 
 to refreshworld
@@ -1108,7 +1148,7 @@ CHOOSER
 climateScenario
 climateScenario
 "+ 2°C" "+ 3°C"
-0
+1
 
 MONITOR
 785
@@ -1188,10 +1228,10 @@ QUALITY
 1
 
 TEXTBOX
-1045
-93
-1195
-111
+1050
+90
+1200
+108
 FARMS
 11
 0.0
@@ -1286,9 +1326,9 @@ qualityStandard
 11
 
 MONITOR
-1050
+1045
 175
-1119
+1114
 220
 Mean Size
 precision mean [count myPlots] of farms 2
@@ -1315,9 +1355,9 @@ NIL
 
 PLOT
 1205
-680
+670
 1365
-810
+800
 Capital (€1000)
 NIL
 NIL
@@ -1424,7 +1464,7 @@ INPUTBOX
 679
 269
 sigmaKernel
-3.0
+1.5
 1
 0
 Number
@@ -1495,9 +1535,9 @@ VIEW:
 1
 
 INPUTBOX
-1050
+1045
 110
-1110
+1105
 170
 nFarms
 680.0
@@ -1506,9 +1546,9 @@ nFarms
 Number
 
 INPUTBOX
-1115
+1110
 110
-1170
+1165
 170
 totArea
 1850.0
@@ -1529,19 +1569,19 @@ GI AREA
 
 TEXTBOX
 1315
-400
+405
 1485
-419
+424
 INSTITUTIONAL CHANGE
-11
-0.0
+14
+105.0
 1
 
 SLIDER
 1315
-455
+460
 1407
-488
+493
 everyXyears
 everyXyears
 1
@@ -1554,9 +1594,9 @@ HORIZONTAL
 
 SLIDER
 1315
-420
+425
 1407
-453
+458
 memory
 memory
 1
@@ -1569,9 +1609,9 @@ HORIZONTAL
 
 SLIDER
 1410
-420
+425
 1515
-453
+458
 prec
 prec
 1
@@ -1584,9 +1624,9 @@ HORIZONTAL
 
 SLIDER
 1410
-455
+460
 1515
-488
+493
 qualityDelta
 qualityDelta
 0
@@ -1599,18 +1639,18 @@ HORIZONTAL
 
 CHOOSER
 1535
-430
+435
 1655
-475
+480
 votingMechanism
 votingMechanism
 "ABS Majority" "REL Majority" "NO VOTE"
-1
+2
 
 PLOT
-1310
+1315
 500
-1515
+1520
 650
 Ballots
 Vote
@@ -1626,9 +1666,9 @@ PENS
 "default" 1.0 1 -16777216 true "" "histogram ballotBox"
 
 TEXTBOX
-1340
+1345
 525
-1390
+1395
 543
 Decrease
 11
@@ -1636,9 +1676,9 @@ Decrease
 1
 
 TEXTBOX
-1460
+1465
 525
-1510
+1515
 543
 Increase
 11
@@ -1646,20 +1686,20 @@ Increase
 1
 
 TEXTBOX
-1539
-486
-1746
-518
+1540
+485
+1747
+517
 Outcome Collective Choice Situation
 14
 105.0
 1
 
 OUTPUT
-1536
-505
-1761
-654
+1537
+504
+1762
+653
 11
 
 INPUTBOX
@@ -1719,7 +1759,7 @@ GI BOARD
 PLOT
 1315
 190
-1585
+1565
 340
 Collective Brand Value
 TIME
@@ -1736,9 +1776,9 @@ PENS
 "Mkt Exp (t)" 1.0 0 -11033397 true "" "plot first [mktExp] of giBoards"
 
 PLOT
-1600
+1570
 190
-1760
+1730
 340
 GI Wine Price
 EURO
@@ -1798,10 +1838,10 @@ giFarmsLev
 11
 
 MONITOR
-1047
-223
-1129
-268
+1045
+225
+1127
+270
 TOT Output
 totProduction
 2
@@ -1809,10 +1849,10 @@ totProduction
 11
 
 MONITOR
-1129
-223
-1197
-268
+1127
+225
+1195
+270
 GI Output
 giProduction
 2
@@ -1820,10 +1860,10 @@ giProduction
 11
 
 MONITOR
-1197
-223
-1276
-268
+1195
+225
+1274
+270
 TOT Profits
 sum [profit] of farms
 2
@@ -1833,8 +1873,8 @@ sum [profit] of farms
 PLOT
 1045
 275
-1285
-405
+1245
+395
 FARMS
 TIME
 N
@@ -1852,9 +1892,9 @@ PENS
 
 PLOT
 1045
-545
-1285
-680
+515
+1295
+665
 Economic Result (1000€)
 TIME
 EURO
@@ -1873,7 +1913,7 @@ PLOT
 785
 215
 1025
-345
+335
 GI AREA (Potential)
 TIME
 N
@@ -1889,9 +1929,9 @@ PENS
 
 PLOT
 785
-345
+335
 1025
-525
+465
 QUALITY
 TIME
 Quality
@@ -1978,9 +2018,9 @@ NIL
 
 PLOT
 1045
-405
-1285
-545
+395
+1245
+515
 Type of farm (%)
 Time
 Count
@@ -1997,10 +2037,10 @@ PENS
 "GI" 1.0 0 -14439633 true "" "plot count farms with [myQuality >= qualityStandard] / count farms"
 
 PLOT
-785
-675
-955
-800
+865
+585
+1025
+705
 Land Use
 NIL
 ha
@@ -2015,20 +2055,20 @@ PENS
 "default" 1.0 1 -16777216 true "" "histogram landUse"
 
 TEXTBOX
-820
-705
-870
-723
+905
+610
+955
+628
 Abandoned
 9
 14.0
 1
 
 TEXTBOX
-905
-705
-945
-723
+975
+610
+1015
+628
 Acquired
 9
 54.0
@@ -2036,9 +2076,9 @@ Acquired
 
 PLOT
 1045
-680
+670
 1205
-810
+800
 Farm Size
 NIL
 NIL
@@ -2053,10 +2093,10 @@ PENS
 "default" 1.0 1 -14070903 true "" "histogram [count myPlots] of farms "
 
 MONITOR
-965
-755
-1025
-800
+795
+505
+855
+550
 Tot Fallow
 totalFallow
 17
@@ -2064,10 +2104,10 @@ totalFallow
 11
 
 PLOT
-785
-525
+865
+465
 1025
-675
+585
 Fallow Land
 TIME
 ha
@@ -2082,9 +2122,9 @@ PENS
 "Fallow" 1.0 0 -2674135 true "" "plot count patches with [fallow = 1]"
 
 INPUTBOX
-1175
+1170
 110
-1230
+1225
 170
 radius
 3.0
@@ -2093,9 +2133,9 @@ radius
 Number
 
 TEXTBOX
-1400
+1405
 525
-1450
+1455
 543
 Constant
 11
@@ -2103,15 +2143,69 @@ Constant
 1
 
 MONITOR
-965
-705
-1026
-750
+795
+620
+857
+665
 AB/ACQ
-landIndex
+(abPlotsEX + abPlotsUNP + abPlotsSUB) / acqPlotsSUB
 3
 1
 11
+
+MONITOR
+800
+755
+857
+800
+abExit
+abPlotsEX
+17
+1
+11
+
+MONITOR
+910
+755
+967
+800
+acqSUB
+acqPlotsSUB
+17
+1
+11
+
+MONITOR
+965
+755
+1022
+800
+abSUB
+abPlotsSUB
+17
+1
+11
+
+MONITOR
+855
+755
+912
+800
+abUNP
+abPlotsUNP
+17
+1
+11
+
+TEXTBOX
+800
+720
+1025
+750
+How is land abandoned and aquired? \nFARM EXIT  UNPROFITABLE    QUALITY SUBST
+11
+0.0
+1
 
 @#$#@#$#@
 ## WHAT IS IT?
@@ -2547,7 +2641,7 @@ NetLogo 6.2.0
     <metric>giProduction / totProduction</metric>
     <metric>freqBallots</metric>
     <metric>votingOutcome</metric>
-    <metric>(count patches with [giLabel = 1])/(count patches)</metric>
+    <metric>count patches with [giLabel = 1] / count patches</metric>
     <metric>landIndex</metric>
     <metric>totalFallow</metric>
     <metric>precision mean [elevation] of patches 2</metric>
@@ -2560,6 +2654,89 @@ NetLogo 6.2.0
     <metric>precision standard-deviation [soilQ] of patches 2</metric>
     <metric>precision standard-deviation [microclimate] of patches 2</metric>
     <metric>precision standard-deviation [wineQ] of patches 2</metric>
+    <metric>abPlots / acqPlots</metric>
+    <enumeratedValueSet variable="sigmaKernel">
+      <value value="1.5"/>
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="climateScenario">
+      <value value="&quot;+ 2°C&quot;"/>
+      <value value="&quot;+ 3°C&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="votingMechanism">
+      <value value="&quot;NO VOTE&quot;"/>
+      <value value="&quot;REL Majority&quot;"/>
+      <value value="&quot;ABS Majority&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="dimKernel">
+      <value value="9"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="maxSoilQ">
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="minSoilQ">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="minElevation">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="maxElevation">
+      <value value="800"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="avgGStemp">
+      <value value="17"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="optGStemp">
+      <value value="17"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="climateW">
+      <value value="0.6"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="nFarms">
+      <value value="680"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="totArea">
+      <value value="1850"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="radius">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="memory">
+      <value value="5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="prec">
+      <value value="2"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="everyXyears">
+      <value value="5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="qualityDelta">
+      <value value="0.01"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="%fee">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="delta">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="rho">
+      <value value="0.4"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="basBrandValue">
+      <value value="1000000"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="exp LAND" repetitions="100" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="55"/>
+    <metric>farmExits</metric>
+    <metric>abPlotsEX</metric>
+    <metric>abPlotsUNP</metric>
+    <metric>abPlotsSUB</metric>
+    <metric>acqPlotsSUB</metric>
+    <metric>(abPlotsEX + abPlotsUNP + abPlotsSUB) / acqPlotsSUB</metric>
+    <metric>landIndex</metric>
     <enumeratedValueSet variable="sigmaKernel">
       <value value="1.5"/>
       <value value="3"/>
