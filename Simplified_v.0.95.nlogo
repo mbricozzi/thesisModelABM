@@ -898,7 +898,7 @@ SmoothElev
 SmoothElev
 0
 10
-5.0
+7.0
 1
 1
 NIL
@@ -1306,7 +1306,7 @@ CHOOSER
 votingMechanism
 votingMechanism
 "ABS Majority" "REL Majority" "NO VOTE"
-2
+1
 
 TEXTBOX
 1071
@@ -1544,7 +1544,7 @@ prec
 prec
 1
 5
-3.0
+2.0
 1
 1
 NIL
@@ -1648,14 +1648,12 @@ Nonetheless, I suggest to follow the readme.txt file in my GitHub page and get h
 
 ## WHAT IS IT?
 
-We developed an agent-based model in which different collective-choice rules (i.e., voting mechanisms) affect the interaction among wine Geographical Indication (GI) stakeholders and the climate resilience of the system. 
+We developed a theoretical agent-based model in which different institutional (i.e., voting mechanisms) and environmental (i.e., spatial heterogeneity) settings affect the interaction among wine geographical indication (GI) stakeholders through an endogenous institutional change process. Farms behave as a cooperative system and use a common GI label that grants higher returns. 
 
-In the model, single agents can endogenously change one common operational rule through voting. The rule they can amend is a production constraint, specifically, a quality standard that is directly connected to climate.
- 
-The model will allow testing different hypothetical adaptive and transformative scenarios, driven by two climate change processes and alternative institutional settings.
-It can be used to explore general system dynamics by use of illustrative data representative of an average GI wine production system in the EU.
+In the model, farm agents can endogenously change one common operational rule through voting. The rule they can amend is a production constraint (i.e., a quality standard). Wine quality is directly connected to climate, and climate change impacts farms’ ability to respect the standard, use the GI label and achieve higher premia. The outcome of the endogenous institutional change process, therefore, could affect the system’s climate resilience.
 
-The aim is not to describe or predict any real-life setting. However, it might provide interesting theoretical insights on the role of institutional change in climate adaptation and resilience of agricultural production systems, contributing as a starting point for future research and model development. 
+The model allows testing different impact scenarios driven by two exogenous climate change processes and different institutional and environmental settings. 
+As a theoretical model, it can be used to explore general system dynamics employing illustrative data representative of an average GI wine production system in the EU. Therefore, the aim is not to describe or predict any real-life setting. However, it might provide interesting theoretical insights on the role of institutional change in climate adaptation and resilience of agricultural production systems, contributing as a starting point for future research and model development.
 
 
 
@@ -1666,19 +1664,20 @@ The model dynamics are divided into two action situations as defined by Ostrom's
 This is what happens in the model in each timestep:
 
 
-1. External climate change process ( updates patches microclimate and wine quality) 
+1. Environmental change: 
+
+	- An external climate change process updates microclimate and wine quality in each grid cell. 
   
-2. Operational Arena:
-  	
-	- Farms calculate their average quality and make decisions on land use (setunprofitable plots fallow), sell their wine output, and can buy or sell plots, following simple heuristics. 
+2. Operational Situation:
+
+	- Following simple heuristics, farms calculate their average quality and make decisions on land use (set unprofitable plots fallow), sell their wine output, and can buy or sell plots substituting low- with high-quality ones. 
   
-	- The GI board assigns the GI label to plots that achieve the quality standard. Then, it collects a yearly fee from farmers, of which a fixed percentage is invested in marketing to increase the value of the collective brand and GI prestige which has an effect on the final GI wine price. Finally, the Board updates GI wine price based on overall average quality, collective brand value,  and the number of GI farms.
- 
-3. Collective Choice Arena
+	- The GI board reshape the GI area, assigning the GI label to plots that achieve the quality standard. Then, it collects a yearly fee from farmers, of which a fixed percentage is invested in marketing to increase the value of the collective brand. The collective brand value, together with quality and percentage of GI farms, determines the GI prestige which has an effect on the final GI wine price. Finally, the GI Board calculate the GI prestige and updates GI wine. 
+  
+3. Collective Choice Situation
     
-	- Each farm votes on how to change one common operational rule (quality standards). They vote based on the memory of their yield quality in the previous years. 
-  
-	- Ballots are collected and the quality standard is changed depending on the voting mechanism in place. 
+	- Each farm votes on how to change one common operational rule (quality standards). They vote based on the memory of their yield quality in the previous five years. 
+	- Ballots are collected and the quality standard is changed depending on the voting mechanism in place.  
 
 
 ## HOW TO USE IT
@@ -1689,16 +1688,16 @@ Several parameters significantly impact the outcome. (e.g., memory, qualityDelta
 
 ## THINGS TO NOTICE
 
-**(suggested things for the user to notice while running the model)**
+See the results of the endogenous institutional change process by looking at the output window on the right side of the interface. A list of outcomes of the institutional change process is also returned in the command centre at the end of each simulation. See how when the standard is successfully decreased the GI area, profits, and collective brand value are affected.
 
 ## THINGS TO TRY
 
-First try to see how spatial heterogeneity impacts the output variables and graphs included in the interface (try to change sigmaKernel). Then see how the two different climate scenarios mitigate or emphasise the effect of spatial heterogeneity. Afterwards, notice how different voting mechanisms can help mitigate overall quality deterioration through institutional change. Also try to change the critical parameters stated above.
+First try to see how the two different climate scenarios impact main output variables and graphs included in the interface (try to change sigmaKernel). Then see how spatial heterogeneity might mitigate or emphasise the effect of climate change. Afterwards, notice how different voting mechanisms can help mitigate the impact on main outcomes through institutional change. Also try to change the critical parameters stated above (e.g., see how memory and precision affect the endogenous institutional change process).
 
 ## EXTENDING THE MODEL
 
-
-- Possibility of communication between farms and creation of lobby groups
+- Dedicate further attention to fine-tuning the price formation mechanism.
+- Possibility of communication between farms and creation of lobby groups.
 - Improving interaction between GI Board and Farms (e.g., by introducing  moral hazard and explicitly model GI quality assurance).
 - Improving interaction between farms through land and planting rights markets.
 - Testing different heuristics and introducing other incentives e.g., social norms and punishment.
