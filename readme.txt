@@ -71,7 +71,7 @@ start .
 Copy paste here the file "user.properties" (or sobstitute it if already existing).
 
 
-7) You are set
+**You are set**
 
 
 #################################################################
